@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """
+@author: Lothar Maisenbacher/Berkeley
+
 Driver for Thorlabs MDT693B 3-axis piezo controller.
 """
 

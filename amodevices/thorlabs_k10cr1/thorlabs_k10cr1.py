@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Lothar Maisenbacher/MPQ
+@author: Lothar Maisenbacher/Berkeley
 
 Device driver for Thorlabs K10CR1 motorized rotation mount.
 """
