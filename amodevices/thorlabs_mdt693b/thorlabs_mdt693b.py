@@ -17,7 +17,7 @@ read_lock = threading.Lock()
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class ThorlabsMDT693B(dev_generic.Device):
 
@@ -36,17 +36,24 @@ class ThorlabsMDT693B(dev_generic.Device):
         device = self.device
         try:
             ser = serial.Serial(
-                device["Address"], timeout=device.get("Timeout"),
+                device['Address'], timeout=device.get('Timeout'),
                 **device.get('SerialConnectionParams', {}))
         except serial.SerialException:
             raise DeviceError(
                 f'{device["Device"]}: Serial connection couldn\'t be opened')
+        logger.info(
+            '%s: Opened serial connection on port \'%s\'',
+            device['Device'], device['Address']
+            )
         self.ser = ser
+        self.device_present = True
+        self.device_connected = True
 
     def close(self):
         """Close serial connection to device."""
         if self.ser is not None:
             self.ser.close()
+            self.device_connected = False
 
     def write(self, command):
         """Write command `command` (str) to device."""

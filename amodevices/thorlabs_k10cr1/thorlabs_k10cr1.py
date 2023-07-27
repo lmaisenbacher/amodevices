@@ -62,24 +62,6 @@ class ThorlabsK10CR1(dev_generic.Device):
     # Device type ID (self Thorlabs Kinesis C API documentation):
     # 55: "cage rotator", including K10CR1
     DEVICE_TYPE_ID: int = 55
-    # Timeout for device commands except homing (in s)
-    TIMEOUT = 30
-     # Timeout for homing of motors (in s)
-    TIMEOUT_HOMING = 30
-    # Default value for the precision to which device position units are converted to SI units
-    # (in mm)
-    POSITION_PRECISION = 1e-5
-    # Tolerance (in device steps) within position should be reached (otherwise a timeout occurs)
-    STEP_TOLERANCE = 0
-    # Time to wait between position checks while motor is moving to a position (in s)
-    WAIT_LOOP = 0.01
-    # Final wait time to check whether motor stays on target position (in multiples of WAIT_LOOP)
-    WAIT_FINAL = 0.5
-    # Time to wait between position checks while motor is homing (in s)
-    WAIT_LOOP_HOME = 0.1
-    # Compare position device units from defined in this class with those calculated from the
-    # retrieved device parameters
-    CHECK_DEVICE_UNITS = True
 
     def __init__(self, device, update_callback_func=None):
         """Initialize class for device with serial number `serial_number` (int)."""
@@ -102,7 +84,7 @@ class ThorlabsK10CR1(dev_generic.Device):
         # Convert serial number to byte string
         self.serial_number_byte = str(self.serial_number).encode('ascii')
         # Init device open status
-        self.open = False
+        self.device_connected = False
         # Init device information struct
         self.kinesis_device_info = TLI_DeviceInfo()
 
@@ -121,6 +103,10 @@ class ThorlabsK10CR1(dev_generic.Device):
                 +f' and device type ID {self.DEVICE_TYPE_ID:d} in system')
             logger.error(msg)
             raise DeviceError(msg)
+        self.device_present = True
+        logger.info(
+            'SN %d: Found device with device type ID %d in system',
+            self.serial_number, self.DEVICE_TYPE_ID)
 
         # Get Kinesis device info.
         # This is derived from the serial number and USB info, and does not include device settings.
@@ -129,7 +115,7 @@ class ThorlabsK10CR1(dev_generic.Device):
 
     def check_connection(self):
         """Check whether connection to device is open."""
-        if not self.open:
+        if not self.device_connected:
             msg = (
                 f'Thorlabs Kinesis: Connection to device with serial number {self.serial_number:d}'
                 +' not open')
@@ -145,6 +131,8 @@ class ThorlabsK10CR1(dev_generic.Device):
                 +f'{self.serial_number:d} (is it open in another instance?)')
             logger.error(msg)
             raise DeviceError(msg)
+        logger.info(
+            'SN %d: Connected to device', self.serial_number)
         # Start internal loop, requesting position and status every 200 ms
         self.kinesis.ISC_StartPolling(self.serial_number_byte, 200)
         self.kinesis.ISC_ClearMessageQueue(self.serial_number_byte)
@@ -155,16 +143,15 @@ class ThorlabsK10CR1(dev_generic.Device):
         _ = self.kinesis.ISC_WaitForMessage(
             self.serial_number_byte, ctypes.byref(message_type),
             ctypes.byref(message_id), ctypes.byref(message_data))
-        self.open = True
+        self.device_connected = True
         self.get_device_status()
 
     def close(self):
         """Close connection to device."""
-        if self.open:
+        if self.device_connected:
             self.kinesis.ISC_StopPolling(self.serial_number_byte)
-            status = self.kinesis.ISC_Close(self.serial_number_byte)
-            print(status)
-            self.open = False
+            _ = self.kinesis.ISC_Close(self.serial_number_byte)
+            self.device_connected = False
 
     def stop(self, method='profiled'):
         """Stop device movement."""

@@ -13,7 +13,7 @@ import numpy as np
 
 from .dev_exceptions import DeviceError
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class Device:
 
