@@ -110,6 +110,10 @@ class ThorlabsMDT693B(dev_generic.Device):
         of V).
         """
         self._check_axis(axis)
+        min_voltage = 0
+        if voltage < min_voltage:
+            raise DeviceError(
+                f'{self.device["Device"]}: Voltage must not be below {min_voltage:.2f} V')
         command = f'{axis}voltage={voltage}'
         try:
             self.send_command(command)
