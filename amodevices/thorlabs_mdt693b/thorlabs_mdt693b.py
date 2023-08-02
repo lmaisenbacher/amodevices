@@ -55,7 +55,7 @@ class ThorlabsMDT693B(dev_generic.Device):
         """Close serial connection to device."""
         if self.ser is not None:
             self.ser.close()
-            self.device_connected = False
+        self.device_connected = False
 
     def write(self, command):
         """Write command `command` (str) to device."""
