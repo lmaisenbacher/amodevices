@@ -12,7 +12,12 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url='https://github.com/lmaisenbacher/amodevices',
-    packages=['amodevices'],
+    packages=[
+        'amodevices',
+        'amodevices.thorlabs_10cr1',
+        'amodevices.thorlabs_kpa101',
+        'amodevices.thorlabs_mdt693b'
+        ],
     install_requires=[
         'numpy',
         'pyvisa',
