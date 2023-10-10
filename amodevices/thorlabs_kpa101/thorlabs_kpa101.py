@@ -100,13 +100,13 @@ class ThorlabsKPA101(dev_generic.Device):
         return self._sum
 
     @property
-    def xout(self):
+    def xpos(self):
         """Get x position in millimeter. Only meaningful for some sensor types."""
         self.get_readings_cached()
         return self._xpos
 
     @property
-    def yout(self):
+    def ypos(self):
         """Get y position in millimeter. Only meaningful for some sensor types."""
         self.get_readings_cached()
         return self._ypos
