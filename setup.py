@@ -16,7 +16,8 @@ setup(
         'amodevices',
         'amodevices.thorlabs_k10cr1',
         'amodevices.thorlabs_kpa101',
-        'amodevices.thorlabs_mdt693b'
+        'amodevices.thorlabs_mdt693b',
+        'amodevices.thorlabs_pm100'
         ],
     install_requires=[
         'numpy',
