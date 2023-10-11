@@ -26,7 +26,7 @@ from ..dev_exceptions import DeviceError
 logger = logging.getLogger(__name__)
 
 class ThorlabsPM100(dev_generic.Device):
-    """Device driver for Thorlabs Thorlabs PM100 power meter, controlled through VISA."""
+    """Device driver for Thorlabs PM100 power meter, controlled through VISA."""
 
     class _sensor():
 
@@ -143,8 +143,8 @@ class ThorlabsPM100(dev_generic.Device):
 
         @property
         def value(self):
-            """Get current power reading in units of `self.unit`."""
-            return self.outer_instance.visa_query('MEASure:POWer?')
+            """Get current power reading (float) in units of `self.unit`."""
+            return float(self.outer_instance.visa_query('MEASure:POWer?'))
 
     def __init__(self, device, update_callback_func=None):
         """Initialize class for device with serial number `serial_number` (int)."""
