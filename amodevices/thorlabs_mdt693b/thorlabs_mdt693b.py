@@ -5,6 +5,8 @@
 Driver for Thorlabs MDT693B 3-axis piezo controller.
 """
 
+import numpy as np
+import time
 import serial
 import logging
 import threading
@@ -32,6 +34,12 @@ class ThorlabsMDT693B(dev_generic.Device):
         """
         super(ThorlabsMDT693B, self).__init__(device)
         self.ser = None
+        # Timestamp of last reading
+        self._last_reading_time = None
+        # Cache interval for readings (s)
+        self._cache_interval = 0.1
+        # Cached readings
+        self._voltage = np.nan
 
     def connect(self):
         """Open serial connection to device."""
@@ -91,17 +99,23 @@ class ThorlabsMDT693B(dev_generic.Device):
     def read_voltage(self, axis):
         """Read voltage of axis `axis` (str, either 'x', 'y', or 'z')."""
         self._check_axis(axis)
-        command = f'{axis}voltage?'
-        try:
-            response = self.query(command)
-        except serial.SerialException as e:
-            raise DeviceError(
-                f'{self.device["Device"]}: Serial exception encountered: {e}')
-        try:
-            voltage = float(response[1:-1])
-        except ValueError:
-            raise DeviceError(
-                f'{self.device["Device"]}: Could not convert response {response} to float')
+        if np.isnan(self._voltage) or self._last_reading_time is None \
+                or (time.time()-self._last_reading_time > self._cache_interval):
+            self._voltage = np.nan
+            command = f'{axis}voltage?'
+            try:
+                response = self.query(command)
+            except serial.SerialException as e:
+                raise DeviceError(
+                    f'{self.device["Device"]}: Serial exception encountered: {e}')
+            try:
+                voltage = float(response[1:-1])
+            except ValueError:
+                raise DeviceError(
+                    f'{self.device["Device"]}: Could not convert response {response} to float')
+            self._voltage = voltage
+        else:
+            voltage = self._voltage
         return voltage
 
     def set_voltage(self, axis, voltage):
