@@ -120,20 +120,6 @@ class ThorlabsMDT693B(dev_generic.Device):
         except serial.SerialException as e:
             raise DeviceError(f'Serial exception encountered: {e}')
 
-    # def get_values(self):
-    #     """Read channels."""
-    #     chans = self.device['Channels']
-    #     readings = {}
-    #     for channel_id, chan in chans.items():
-    #         if chan['Type'] in ['PV1', 'SV1']:
-    #             value = self.read_temperature(chan['Type'])
-    #             readings[channel_id] = value
-    #         else:
-    #             raise LoggerError(
-    #                 f'Unknown channel type \'{chan["Type"]}\' for channel \'{channel_id}\''
-    #                 +f' of device \'{self.device["Device"]}\'')
-    #     return readings
-
 # device = {
 #     'Device': 'Thorlabs MDT693B',
 #     'Address': 'COM3',
