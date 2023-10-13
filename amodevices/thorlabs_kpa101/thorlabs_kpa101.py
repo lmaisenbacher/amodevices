@@ -31,16 +31,16 @@ class ThorlabsKPA101(dev_generic.Device):
         self.device_connected = False
         # Instance of `pylablib.devices.Thorlabs.kinesis` class
         self.KinesisQuadDetector = None
+        # Timestamp of last reading
+        self._last_reading_time = None
+        # Cache interval for readings (s)
+        self._cache_interval = 0.1
         # Cached readings
         self._xdiff = np.nan
         self._ydiff = np.nan
         self._sum = np.nan
         self._xpos = np.nan
         self._ypos = np.nan
-        # Timestamp of last reading
-        self._last_reading_time = None
-        # Cache interval for readings (s)
-        self._cache_interval = 0.1
 
     def check_connection(self):
         """Check whether connection to device is open."""
@@ -110,6 +110,26 @@ class ThorlabsKPA101(dev_generic.Device):
         """Get y position in millimeter. Only meaningful for some sensor types."""
         self.get_readings_cached()
         return self._ypos
+
+    @property
+    def xpos_pdp90a(self):
+        """
+        Only valid for Thorlabs PDP90A:
+        x position in millimeter, calculated from x-axis alignment difference signal and summed
+        signal.
+        """
+        self.get_readings_cached()
+        return 5*self._xdiff/self._sum
+
+    @property
+    def ypos_pdp90(self):
+        """
+        Only valid for Thorlabs PDP90A:
+        y position in millimeter, calculated from x-axis alignment difference signal and summed
+        signal.
+        """
+        self.get_readings_cached()
+        return 5*self._ydiff/self._sum
 
     @property
     def operation_mode(self):
