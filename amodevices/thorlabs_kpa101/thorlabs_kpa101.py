@@ -122,7 +122,7 @@ class ThorlabsKPA101(dev_generic.Device):
         return 5*self._xdiff/self._sum
 
     @property
-    def ypos_pdp90(self):
+    def ypos_pdp90a(self):
         """
         Only valid for Thorlabs PDP90A:
         y position in millimeter, calculated from x-axis alignment difference signal and summed
