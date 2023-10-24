@@ -81,7 +81,7 @@ class Device:
                 logger.error(msg)
                 raise DeviceError(msg)
             if 'Timeout' in self.device:
-                self.visa_resource.timeout = self.device['Timeout']
+                self.visa_resource.timeout = self.device['Timeout']*1e3
             if self.device.get('VISAIDN', None) is not None:
                 if visa_rcvd_idn == self.device['VISAIDN']:
                     logger.info(
