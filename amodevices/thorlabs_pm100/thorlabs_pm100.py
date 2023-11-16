@@ -147,7 +147,7 @@ class ThorlabsPM100(dev_generic.Device):
             return float(self.outer_instance.visa_query('MEASure:POWer?'))
 
     def __init__(self, device, update_callback_func=None):
-        """Initialize class for device with serial number `serial_number` (int)."""
+        """Initialize class for device `device` (dict)."""
         super().__init__(device)
 
         self.init_visa()
