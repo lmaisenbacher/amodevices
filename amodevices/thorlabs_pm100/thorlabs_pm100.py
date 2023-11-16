@@ -154,6 +154,10 @@ class ThorlabsPM100(dev_generic.Device):
         self.sensor = self._sensor(self)
         self.power = self._power(self)
 
+    def close(self):
+        """Close connection to device."""
+        self.visa_resource.close()
+
     @property
     def wavelength(self):
         """Get operation wavelength (float) in units of nm."""
