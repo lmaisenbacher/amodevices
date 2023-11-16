@@ -21,5 +21,7 @@ device = {
 
 try:
     device_instance = RigolRSA3000(device)
+    trace1 = device_instance.trace(1)
+    print(trace1.detector)
 except DeviceError as e:
     print(e.value)

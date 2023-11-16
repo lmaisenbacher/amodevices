@@ -63,6 +63,51 @@ class RigolRSA3000(dev_generic.Device):
             """Set stop frequency to `freq` (Hz, float)."""
             return self.outer_instance.visa_write(f':FREQuency:STOP {freq}')
 
+        @property
+        def values(self):
+            """Get frequency values as 1-D array."""
+            return np.linspace(self.start, self.stop, self.outer_instance.sweep_points)
+
+    class _trace():
+
+        def __init__(self, outer_instance, trace_id):
+            self.outer_instance = outer_instance
+            self.trace_id = trace_id
+
+        @property
+        def detector(self):
+            """
+            Get the detector type for trace number `trace_id` (int).
+            Returns either `AVERage`, `NEGative`, `NORMal`, `POSitive`, `SAMPle`, `QPEak`,
+            `RAVerage`.
+            """
+            return self.outer_instance.visa_query(f':DETector:TRACe{self.trace_id:d}?')
+
+        @detector.setter
+        def detector(self, detector):
+            """
+            Set the detector type to `detector` for trace number `trace_id` (int).
+            `detector` is either `AVERage`, `NEGative`, `NORMal`, `POSitive`, `SAMPle`, `QPEak`,
+            `RAVerage`.
+            """
+            return self.outer_instance.visa_write(f':DETector:TRACe{self.trace_id:d} {detector}')
+
+        @property
+        def data(self):
+            """Read the y-axis data. The unit will the unit the device is currently set to."""
+            trace = self.outer_instance.visa_query(f':TRAC:DATA? TRACE{self.trace_id:d}')
+            return np.array(trace.split(',')).astype(float)
+
+        @data.setter
+        def data(self, data):
+            """
+            Set the y-axis data to `data` (1-D array, float or int).
+            The unit will the unit the device is currently set to.
+            """
+            data_str = ','.join(data.astype(str))
+            return self.outer_instance.visa_write(
+                f':TRAC:DATA TRACE{self.trace_id:d}, {data_str}')
+
     def __init__(self, device, update_callback_func=None):
         """Initialize class for device `device` (dict)."""
         super().__init__(device)
@@ -70,9 +115,16 @@ class RigolRSA3000(dev_generic.Device):
         self.init_visa()
         self.freq = self._freq(self)
 
+        # Set trace data format to ASCII
+        self.trace_data_format = 'ASCii'
+
     def close(self):
         """Close connection to device."""
         self.visa_resource.close()
+
+    def trace(self, trace_id):
+        """Return instance of trace class (class `_trace`) for trace number `trace_id`."""
+        return self._trace(self, trace_id)
 
     @property
     def yunit(self):
@@ -84,7 +136,7 @@ class RigolRSA3000(dev_generic.Device):
         """Set the y-axis unit to `unit` (str): either 'DBM', 'DBMV', 'DBUV', 'V', or 'W'."""
         if unit not in ['DBM', 'DBMV', 'DBUV', 'V', 'W']:
             raise DeviceError(
-                f'{self.outer_instance.device["Device"]}: '
+                f'{self.device["Device"]}: '
                 +'Power unit must be \'DBM\', \'DBMV\', \'DBUV\', \'V\', or \'W\'')
         return self.visa_write(f':UNIT:POWer {unit}')
 
@@ -184,33 +236,9 @@ class RigolRSA3000(dev_generic.Device):
         """
         return self.visa_write(f':FORMat:TRACe:DATA {data_format}')
 
-    def set_detector(self, trace_id, detector):
-        """
-        Set the detector type to `detector` for trace number `trace_id` (int).
-        `detector` is either `AVERage`, `NEGative`, `NORMal`, `POSitive`, `SAMPle`, `QPEak`,
-        `RAVerage`.
-        """
-        return self.visa_write(f':DETector:TRACe{trace_id:d} {detector}')
-
-    def get_detector(self, trace_id):
-        """
-        Get the detector type for trace number `trace_id` (int).
-        Returns either `AVERage`, `NEGative`, `NORMal`, `POSitive`, `SAMPle`, `QPEak`,
-        `RAVerage`.
-        """
-        return self.visa_query(f':DETector:TRACe{trace_id:d}?')
-
     def sweep(self):
         """
         Initialize a sweep (in non-measurement state) or trigger a measurement
         (in measurement state).
         """
         return self.visa_write(':INITiate:IMMediate')
-
-    def read_trace(self, trace_id):
-        """
-        Read the y-axis data of trace number `trace_id` (int). The unit will the unit the device is
-        currently set to.
-        """
-        trace = self.visa_query(f':TRAC:DATA? TRACE{trace_id:d}')
-        return np.array(trace.split(',')).astype(float)
