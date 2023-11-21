@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1',
+    version='0.1.1',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -17,7 +17,8 @@ setup(
         'amodevices.thorlabs_k10cr1',
         'amodevices.thorlabs_kpa101',
         'amodevices.thorlabs_mdt693b',
-        'amodevices.thorlabs_pm100'
+        'amodevices.thorlabs_pm100',
+        'amodevices.rigol_rsa3000'
         ],
     install_requires=[
         'numpy',
