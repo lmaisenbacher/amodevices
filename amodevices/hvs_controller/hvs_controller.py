@@ -28,7 +28,7 @@ class hvsController(dev_generic.Device):
 
         self.timeout = device["Timeout"]
 
-        self._cache_interval = 0.1 # 100 ms
+        self._cache_interval = 0.1  # 100 ms
         self._last_reading_time = None
         self._voltages = np.full(shape=(4,), fill_value=np.nan)
         self._currents = np.full(shape=(4,), fill_value=np.nan)
@@ -38,14 +38,15 @@ class hvsController(dev_generic.Device):
         for monitor in self.device['Monitors']:
             adc_port = str.encode(f"/{adc_slot}/{monitor['Input']}")
             if monitor["Measurement"] == "Voltage":
-            # Double check that this works? How does computer assign port?
+                # Double check that this works? How does computer assign port?
                 self._voltage_monitors.CreateAIVoltageChan(adc_port, b'', PyDAQmx.DAQmx_Val_RSE,
-                                                        PyDAQmx.float64(0), PyDAQmx.float64(monitor['Limit']), PyDAQmx.DAQmx_Val_Volts, None)
+                                                           PyDAQmx.float64(0), PyDAQmx.float64(monitor['Limit']), PyDAQmx.DAQmx_Val_Volts, None)
             elif monitor["Measurement"] == "Current":
                 self._current_monitors.CreateAIVoltageChan(adc_port, b'', PyDAQmx.DAQmx_Val_RSE,
-                                                        PyDAQmx.float64(0), PyDAQmx.float64(monitor['Limit']), PyDAQmx.DAQmx_Val_Volts, None)
+                                                           PyDAQmx.float64(0), PyDAQmx.float64(monitor['Limit']), PyDAQmx.DAQmx_Val_Volts, None)
             else:
-                raise DeviceError(f"{monitor["Measurement"]} is not a known measurement type!")
+                raise DeviceError(
+                    f"{monitor['Measurement']} is not a known measurement type!")
         for control in self.device['Controls']:
             dac_port = str.encode(f"/{dac_slot}/{control['Input']}")
             self._voltage_controls.CreateAOVoltageChan(dac_port, b'', PyDAQmx.float64(
@@ -58,7 +59,8 @@ class hvsController(dev_generic.Device):
             self._voltages = np.full(shape=(4,), fill_value=np.nan)
             try:
                 # Configure memory for read
-                samples = np.empty((len(self.voltage_monitors_info), n_samples))
+                samples = np.empty(
+                    (4, n_samples))
                 samps_read = PyDAQmx.int32()
                 # Perform read
                 self._voltage_monitors.StartTask()
@@ -72,7 +74,8 @@ class hvsController(dev_generic.Device):
                 values = np.mean(samples, axis=1)
                 # Problem: values are stored according to channel; must either sort labels according to channels or values according to labels
                 for i, val in enumerate(values):
-                    self._voltages[i] = val * self.device["Monitors"][i]["Scaling"]
+                    self._voltages[i] = val * \
+                        self.device["Monitors"][i]["Scaling"]
             except PyDAQmx.DAQmxError as e:
                 raise DeviceError(f"Received NI Card Error; {e}")
         return self._voltages[channel]
@@ -83,7 +86,8 @@ class hvsController(dev_generic.Device):
             self._currents = np.full(shape=(4,), fill_value=np.nan)
             try:
                 # Configure memory for read
-                samples = np.empty((len(self.voltage_monitors_info), n_samples))
+                samples = np.empty(
+                    (2, n_samples))
                 samps_read = PyDAQmx.int32()
                 # Perform read
                 self._voltage_monitors.StartTask()
@@ -94,24 +98,26 @@ class hvsController(dev_generic.Device):
                 if samps_read != n_samples:
                     raise DeviceError("Requested and read samples mismatch!")
                 # Store readings
-                values = np.mean(samples, axis=1 )
+                values = np.mean(samples, axis=1)
                 # Problem: values are stored according to channel; must either sort labels according to channels or values according to labels
                 for i, val in enumerate(values):
-                    self._currents[i] = val * self.device["Monitors"][i]["Scaling"]
+                    self._currents[i] = val * \
+                        self.device["Monitors"][i]["Scaling"]
             except PyDAQmx.DAQmxError as e:
                 raise DeviceError(f"Received NI Card Error; {e}")
         return self._currents[channel]
 
     def set_voltage(self, channel, value):
         try:
-            self._write_voltages[channel] = value * self.device["Controls"][channel]["Scaling"]
+            self._write_voltages[channel] = value * \
+                self.device["Controls"][channel]["Scaling"]
             samps_written = PyDAQmx.int32()
             self._voltage_controls.StartTask()
-            self.voltage_controls.WriteAnalogF64(PyDAQmx.int32(1), PyDAQmx.bool32(True), PyDAQmx.float64(self.timeout), PyDAQmx.bool32(
+            self._voltage_controls.WriteAnalogF64(PyDAQmx.int32(1), PyDAQmx.bool32(True), PyDAQmx.float64(self.timeout), PyDAQmx.bool32(
                 PyDAQmx.DAQmx_Val_GroupByChannel), np.zeros(self._write_voltages.size), PyDAQmx.byref(samps_written), None)
-            self.voltage_controls.StopTask()
+            self._voltage_controls.StopTask()
         except PyDAQmx.DAQmxError as e:
             raise DeviceError(f"Received NI Card Error; {e}")
         if samps_written != 4:
-            raise DeviceError("Requested and written samples mismatch!")  
+            raise DeviceError("Requested and written samples mismatch!")
         return

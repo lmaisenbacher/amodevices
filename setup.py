@@ -20,12 +20,13 @@ setup(
         'amodevices.thorlabs_pm100',
         'amodevices.rigol_rsa3000',
         'amodevices.hvs_controller',
-	'amodevices.kjlc_xcg'
+        'amodevices.kjlc_xcg'
     ],
     install_requires=[
         'numpy',
         'pyvisa',
         'pyserial',
-        'pylablib'
+        'pylablib',
+        'pyDAQmx'
     ],
 )
