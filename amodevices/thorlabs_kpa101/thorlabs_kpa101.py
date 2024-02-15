@@ -22,7 +22,7 @@ class ThorlabsKPA101(dev_generic.Device):
     """Device driver for Thorlabs KPA101 beam position aligner, using `pylablib` library."""
 
     def __init__(self, device, update_callback_func=None):
-        """Initialize class for device with serial number `serial_number` (int)."""
+        """Initialize class for device with settings `device` (dict)."""
         super().__init__(device)
 
         # Serial number to open
