@@ -15,9 +15,11 @@ interface with the Arduino over serial.
 """
 import logging
 import serial
-from amodevices import dev_generic
+from .. import dev_generic
+from ..dev_exceptions import DeviceError
 
 logger = logging.getLogger()
+
 
 class Device(dev_generic.Device):
 
@@ -76,5 +78,5 @@ class Device(dev_generic.Device):
             else:
                 raise DeviceError(
                     f'Unknown channel type \'{chan["Type"]}\' for channel \'{channel_id}\''
-                    +f' of device \'{self.device["Device"]}\'')
+                    + f' of device \'{self.device["Device"]}\'')
         return readings
