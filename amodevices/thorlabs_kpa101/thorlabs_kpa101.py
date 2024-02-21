@@ -63,6 +63,7 @@ class ThorlabsKPA101(dev_generic.Device):
             raise DeviceError(msg)
         logger.info(
             'SN %d: Connected to device', self.serial_number)
+        self.KinesisQuadDetector._invert_xdiff = False
         self.device_connected = True
         self.get_readings_cached()
 
@@ -77,8 +78,11 @@ class ThorlabsKPA101(dev_generic.Device):
         if self._last_reading_time is None \
                 or (time.time()-self._last_reading_time > self._cache_interval):
             self.check_connection()
-            self._xdiff, self._ydiff, self._sum, self._xpos, self._ypos = (
+            self._xdiff, self._ydiff, _sum, self._xpos, self._ypos = (
                 self.KinesisQuadDetector.get_readings())
+            # `KinesisQuadDetector` scales the sum up by a factor of 2, but it needs to be scaled
+            # down by a factor of 2. Fixing this by scaling down by a factor of 4 here.
+            self._sum = _sum/4
             self._last_reading_time = time.time()
 
     @property

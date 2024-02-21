@@ -21,11 +21,11 @@ try:
     device_instance = ThorlabsKPA101(device)
     device_instance.connect()
     print(device_instance.KinesisQuadDetector.get_full_info())
-    print(device_instance.xout)
+    print(device_instance.sum)
     print(device_instance.xdiff)
     print(device_instance.ydiff)
     time.sleep(1)
-    print(device_instance.ydiff)
+    # print(device_instance.ydiff)
     print(device_instance.operation_mode)
     device_instance.operation_mode = 'open_loop'
     print(device_instance.operation_mode)
