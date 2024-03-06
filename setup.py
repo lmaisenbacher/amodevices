@@ -27,6 +27,6 @@ setup(
         'pyvisa',
         'pyserial',
         'pylablib',
-        'pyDAQmx'
+        'PyDAQmx'
     ],
 )
