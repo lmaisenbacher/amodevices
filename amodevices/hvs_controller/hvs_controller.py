@@ -16,9 +16,6 @@ from ..dev_exceptions import DeviceError
 
 logger = logging.getLogger(__name__)
 
-# Add lock feature?
-
-
 class hvsController(dev_generic.Device):
 
     def __init__(self, device):
