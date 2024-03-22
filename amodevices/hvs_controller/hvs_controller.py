@@ -38,9 +38,9 @@ class hvsController(dev_generic.Device):
     def __init__(self, device):
         super().__init__(device)
 
-        self._monitors = PyDAQmx.Task("Voltage Monitors")
-        self._voltage_controls = PyDAQmx.Task("Voltage Controls")
-        self.timeout = device["Timeout"]
+        self._monitors = None
+        self._voltage_controls = None
+        self.timeout = device["timeout"]
         self._cache_interval = 0.5
         self._last_reading_time = None
         self._names = []
@@ -52,7 +52,9 @@ class hvsController(dev_generic.Device):
     def connect(self):
         """Setup the necessary 'connections' for the high voltage controller."""
         try:
-            for chan in self.device['Channels']:
+            self._monitors = PyDAQmx.Task("Voltage Monitors")
+            self._voltage_controls = PyDAQmx.Task("Voltage Controls")
+            for chan in self.device['channels']:
                 if chan['model'] == "Matsusada KA-10P":
                     self.config_ka10p(chan)
                 elif chan['model'] in ("Matsusada J4-5P", "Matsusada J4-5N"):
@@ -60,7 +62,7 @@ class hvsController(dev_generic.Device):
                 else:
                     raise DeviceError(f"Model {chan['model']} isn't recognized!")
             self._monitors.StartTask()
-            self._controls.StartTask()
+            self._voltage_controls.StartTask()
             self._connected = True
         except PyDAQmx.DAQmxFunctions.DevCannotBeAccessedError as e:
             self._connected = False
@@ -77,7 +79,7 @@ class hvsController(dev_generic.Device):
         current_monitor_port = str.encode(
             f"/{self.device['cDAQs']['adc']}/AI{channel['current_monitor']}")
         voltage_control_port = str.encode(
-            f"/{self.device['cDAQs']['dac']}/AI{channel['voltage_control']}")
+            f"/{self.device['cDAQs']['dac']}/AO{channel['voltage_control']}")
         self._monitors.CreateAIVoltageChan(voltage_monitor_port,
                                                     b'',
                                                     PyDAQmx.DAQmx_Val_RSE,
@@ -100,9 +102,9 @@ class hvsController(dev_generic.Device):
                                                        None)
         self._voltages[channel['name']] = np.nan
         self._currents[channel['name']] = np.nan
-        self._voltage_controls[channel['name']] = 0
+        self._write_voltages[channel['name']] = 0
         self._names.append(channel['name'])
-        return 
+        return  
     
     def config_j45(self, channel):
             """
@@ -111,7 +113,7 @@ class hvsController(dev_generic.Device):
                             should include `name`, `model`, and `voltage_monitor`
         """
             voltage_monitor_port = str.encode(f"/{self.device['cDAQs']['adc']}/AI{channel['voltage_monitor']}")
-            voltage_control_port = str.encode(f"/{self.device['cDAQs']['dac']}/AI{channel['voltage_control']}")
+            voltage_control_port = str.encode(f"/{self.device['cDAQs']['dac']}/AO{channel['voltage_control']}")
             self._monitors.CreateAIVoltageChan(voltage_monitor_port,
                                                         b'',
                                                         PyDAQmx.DAQmx_Val_RSE,
@@ -126,7 +128,7 @@ class hvsController(dev_generic.Device):
                                                            PyDAQmx.DAQmx_Val_Volts,
                                                            None)
             self._voltages[channel['name']] = np.nan
-            self._voltage_controls[channel['name']] = 0
+            self._write_voltages[channel['name']] = 0
             self._names.append(channel['name'])
             return
             
@@ -144,7 +146,22 @@ class hvsController(dev_generic.Device):
             raise DeviceError(f"{new_name} is an invalid name, cannot duplicate names!")
         for chan in self.device['channels']:
             if chan['name'] == channel_name: chan['name'] = new_name
-        self._names[self._names.index('channel_name')] = new_name
+        self._names[self._names.index(channel_name)] = new_name
+        self._voltages = self._change_key_in_place(channel_name, new_name, self._voltages)
+        self._write_voltages = self._change_key_in_place(channel_name, new_name, self._write_voltages)
+        if channel_name in self._currents:
+            self._currents = self._change_key_in_place(channel_name, new_name, self._currents)
+
+    def _change_key_in_place(self, key, new_key, dic):
+        """
+        Change a dictionary (`dic`) key (`key`) in place to `new_key`,
+        keeping the ordering of keys and values the same.
+        """
+        new_dict = {}
+        for k, v in dic.items():
+            if k == key: new_dict[new_key] = v
+            else: new_dict[k] = v
+        return new_dict
 
     def get_device(self):
         "Getter method for the device dictionary."
@@ -178,7 +195,7 @@ class hvsController(dev_generic.Device):
         """
         values = self._measure_voltage()
         i = 0
-        for chan in enumerate(self.device['channels']):
+        for chan in self.device['channels']:
             if chan['model'] == "Matsusada KA-10P":
                 voltage_scaling = 1000
                 current_scaling = 0.1
@@ -198,7 +215,8 @@ class hvsController(dev_generic.Device):
         """
         try:
             # Configure memory for read
-            samples = np.empty((len(self.device['channels']), n_samples))
+            buf_size = len(self._currents) + len(self._voltages)
+            samples = np.empty((buf_size, n_samples))
             samps_read = PyDAQmx.int32()
             # Perform read
             self._last_reading_time = time.time()
@@ -219,13 +237,16 @@ class hvsController(dev_generic.Device):
             raise DeviceError(f"Connection Error: {e}")
         except PyDAQmx.DAQError as e:
             raise DeviceError(f"Received NI Card Error; {e}") 
+        
+    # New problem: if we change the name, the order of the _write_voltages changes relative to what they were stored as 
+    # in the task...
 
     def set_voltage(self, channel_name, value):
         """
         Set the voltage of high voltage supply with name `channel_name` to `value`.
         """
-        scaling = 0 
-        for chan in enumerate(self.device['channels']):
+        scaling = 0
+        for chan in self.device['channels']:
             if chan['name'] == channel_name and chan['model'] == "Matsusada KA-10P":
                 scaling =  0.001
             elif chan['name'] == channel_name and chan['model'] in ("Matsusada J4-5P", "Matsusada J4-5N"):
@@ -240,11 +261,12 @@ class hvsController(dev_generic.Device):
         """
         try:
             samps_written = PyDAQmx.int32()
+            values = np.array(list(self._write_voltages.values()))
             self._voltage_controls.WriteAnalogF64(PyDAQmx.int32(1),
                                                   PyDAQmx.bool32(True),
                                                   PyDAQmx.float64(self.timeout),
                                                   PyDAQmx.bool32(PyDAQmx.DAQmx_Val_GroupByChannel),
-                                                  self._write_voltages,
+                                                  values,
                                                   PyDAQmx.byref(samps_written),
                                                   None)
         except PyDAQmx.DAQmxFunctions.DevCannotBeAccessedError as e:
@@ -262,4 +284,4 @@ class hvsController(dev_generic.Device):
         is correctly freed up.
         """
         self._monitors.ClearTask()
-        self._controls.ClearTask()
+        self._voltage_controls.ClearTask()
