@@ -20,7 +20,7 @@ class Keysight53220A(dev_generic.Device):
 
     class _input():
 
-        def __init__(self, channel, outer_instance):
+        def __init__(self, outer_instance, channel):
             self.channel = channel
             self.outer_instance = outer_instance
 
@@ -43,7 +43,7 @@ class Keysight53220A(dev_generic.Device):
         @noise_reject.setter
         def noise_reject(self, state):
             """ Set state of noise rejection algorithm (hysteresis) on input channel to `state`."""
-            return self.outer_instance.visa_write(f'INPut{self.channel}:NREject {'ON' if state else 'OFF'}')
+            return self.outer_instance.visa_write(f'INPut{self.channel}:NREject {"ON" if state else "OFF"}')
 
     class _gate():
 
@@ -75,9 +75,9 @@ class Keysight53220A(dev_generic.Device):
         super().__init__(device)
 
         self.init_visa()
-        self.inp_1 = self._input(1)
-        self.inp_2 = self._input(2)
-        self.gate = self._gate()
+        self.inp_1 = self._input(self, 1)
+        self.inp_2 = self._input(self, 2)
+        self.gate = self._gate(self)
 
     @property
     def totalize_data(self):
