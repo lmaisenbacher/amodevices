@@ -1,0 +1,31 @@
+[device]
+timeout = 10
+[[device.channels]]
+name = "Ch1"
+model = "Matsusada KA-10P"
+voltage_monitor = 0
+current_monitor = 4
+voltage_control = 0
+
+[[device.channels]]
+name = "Ch2"
+model = "Matsusada J4-5P"
+voltage_monitor = 1
+voltage_control = 2
+
+[[device.channels]]
+name = "Ch3"
+model = "Matsusada J4-5P"
+voltage_monitor = 3
+voltage_control = 3
+
+[[device.channels]]
+name = "Ch4"
+model = "Matsusada KA-10P"
+voltage_monitor = 2
+current_monitor = 5
+voltage_control = 1
+
+[device.cDAQs]
+adc = "cDAQ1Mod4"
+dac = "cDAQ1Mod2"
