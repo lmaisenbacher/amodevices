@@ -20,7 +20,8 @@ setup(
         'amodevices.thorlabs_pm100',
         'amodevices.rigol_rsa3000',
         'amodevices.hvs_controller',
-        'amodevices.kjlc_xcg'
+        'amodevices.kjlc_xcg',
+        'amodevices.srs_sim922'
     ],
     install_requires=[
         'numpy',
