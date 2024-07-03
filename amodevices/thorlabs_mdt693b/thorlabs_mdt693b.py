@@ -13,8 +13,6 @@ import threading
 
 # Thread lock to avoid writing/reading of serial ports from different threads
 # at the same time
-# All writers have to lock this
-write_lock = threading.Lock()
 # All readers have to lock this
 read_lock = threading.Lock()
 
@@ -43,35 +41,15 @@ class ThorlabsMDT693B(dev_generic.Device):
 
     def connect(self):
         """Open serial connection to device."""
-        device = self.device
-        try:
-            ser = serial.Serial(
-                device['Address'], timeout=device.get('Timeout'),
-                **device.get('SerialConnectionParams', {}))
-        except serial.SerialException:
-            raise DeviceError(
-                f'{device["Device"]}: Serial connection couldn\'t be opened')
-        logger.info(
-            '%s: Opened serial connection on port \'%s\'',
-            device['Device'], device['Address']
-            )
-        self.ser = ser
-        self.device_present = True
-        self.device_connected = True
+        self.serial_connect()
 
     def close(self):
         """Close serial connection to device."""
-        if self.ser is not None:
-            self.ser.close()
-        self.device_connected = False
+        self.serial_close()
 
     def write(self, command):
         """Write command `command` (str) to device."""
-        query = command+'\n'
-        with write_lock:
-            n_write_bytes = self.ser.write((command+'\n').encode('ASCII'))
-        if n_write_bytes != len(query):
-            raise DeviceError(f'{self.device["Device"]}: Query failed')
+        self.serial_write(command, encoding='ASCII', eol='\n')
 
     def query(self, command):
         """Query device with command `command` (str) and return response (str)."""
@@ -133,34 +111,3 @@ class ThorlabsMDT693B(dev_generic.Device):
             self.send_command(command)
         except serial.SerialException as e:
             raise DeviceError(f'Serial exception encountered: {e}')
-
-# device = {
-#     'Device': 'Thorlabs MDT693B',
-#     'Address': 'COM3',
-#     'Timeout': 1,
-#     'SerialConnectionParams': {
-#         "baudrate":115200,
-#         "bytesize":8,
-#         "stopbits":1,
-#         "parity":"N"
-#         }
-#     }
-# device_instance = Device(device)
-# try:
-#     device_instance.connect()
-#     # print(device_instance.write('echo=0'))
-#     # print(device_instance.query('echo?'))
-#     print(device_instance.set_voltage('y', 10))
-#     # print(device_instance.read_voltage('x'))
-#     print(device_instance.read_voltage('y'))
-#     for i in range(100):
-#         print(device_instance.set_voltage('x', 10))
-#         print(device_instance.read_voltage('x'))
-#         print(device_instance.read_voltage('y'))
-#         print(device_instance.read_voltage('z'))
-#     # print(device_instance.read_voltage('z'))
-# except LoggerError as e:
-#     print(e.value)
-# finally:
-#     None
-#     device_instance.close()

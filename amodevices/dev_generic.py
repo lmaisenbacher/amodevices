@@ -7,11 +7,18 @@ Created on Wed Mar  7 16:55:25 2018
 Generic device driver.
 """
 
+import numpy as np
 import pyvisa
 import logging
-import numpy as np
+import serial
+import threading
 
 from .dev_exceptions import DeviceError
+
+# Thread lock to avoid writing/reading of serial ports from different threads
+# at the same time
+# All writers have to lock this
+write_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +34,7 @@ class Device:
         self.device_present = False
         self.device_connected = False
         self.device = device
+        self.ser = None
         self.visa_warning = False
         self.visa_resource = None
 
@@ -38,25 +46,41 @@ class Device:
         """Close connection to device."""
         None
 
-    def to_float(self, value):
-        """Convert `value` to float."""
+    def serial_connect(self):
+        """Open serial connection to device."""
+        device = self.device
         try:
-            value_ = float(value)
-        except ValueError:
-            raise DeviceError('Value \'%s\' is not of expected type \'float\'.', value)
-        return value_
+            ser = serial.Serial(
+                device['Address'], timeout=device.get('Timeout'),
+                **device.get('SerialConnectionParams', {}))
+        except serial.SerialException:
+            raise DeviceError(
+                f'{device["Device"]}: Serial connection couldn\'t be opened')
+        logger.info(
+            '%s: Opened serial connection on port \'%s\'',
+            device['Device'], device['Address']
+            )
+        self.ser = ser
+        self.device_present = True
+        self.device_connected = True
 
-    def to_int(self, value):
-        """Convert `value` to int."""
-        e ='Value \'{}\' is not of expected type \'int\'.'.format(value)
-        try:
-            value_float = float(value)
-        except ValueError:
-            raise DeviceError(e)
-        if not value_float.is_integer():
-            raise DeviceError(e)
-        else:
-            return int(value_float)
+    def serial_close(self):
+        """Close serial connection to device."""
+        if self.ser is not None:
+            self.ser.close()
+        self.device_connected = False
+
+    def serial_write(self, command, encoding='ASCII', eol='\n'):
+        """
+        Write command `command` (str) to device over serial connection,
+        using encoding `encoding` (str; default is 'ASCII') and end-of-line character
+        `eol` (str; default is '\n').
+        """
+        query = command+eol
+        with write_lock:
+            n_write_bytes = self.ser.write((query).encode(encoding))
+        if n_write_bytes != len(query):
+            raise DeviceError(f'{self.device["Device"]}: Query failed')
 
     def init_visa(self):
         """Initialize VISA connection."""
@@ -138,3 +162,23 @@ class Device:
                     self.device['Device'], self.device['Address'], e.description))
             logger.error(msg)
             raise DeviceError(msg)
+
+    def to_float(self, value):
+        """Convert `value` to float."""
+        try:
+            value_ = float(value)
+        except ValueError:
+            raise DeviceError('Value \'%s\' is not of expected type \'float\'.', value)
+        return value_
+
+    def to_int(self, value):
+        """Convert `value` to int."""
+        e ='Value \'{}\' is not of expected type \'int\'.'.format(value)
+        try:
+            value_float = float(value)
+        except ValueError:
+            raise DeviceError(e)
+        if not value_float.is_integer():
+            raise DeviceError(e)
+        else:
+            return int(value_float)

@@ -22,6 +22,7 @@ setup(
         'amodevices.hvs_controller',
         'amodevices.kjlc_xcg',
         'amodevices.keysight_53220a',
+        'amodevices.srs_sim922',
     ],
     install_requires=[
         'numpy',
