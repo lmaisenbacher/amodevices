@@ -2,7 +2,7 @@
 """
 @author: Chris Zavik and Lothar Maisenbacher/Berkeley
 
-Device driver for Stanford Research Instruments SIM922 diode temperature monitor.
+Device driver for Stanford Research Instruments (SRS) SIM922 diode temperature monitor.
 """
 
 import logging
