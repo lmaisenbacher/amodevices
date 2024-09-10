@@ -28,7 +28,7 @@ sys.path.append(str(module_path))
 # Now you can import the module
 from flir_boson_sdk import *
 
-class FLIRBOSON(dev_generic.Device):
+class FLIRBoson(dev_generic.Device):
     """Device driver for FLIR Boson thermal camera."""
 
     def __init__(self, device, update_callback_func=None):

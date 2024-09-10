@@ -7,7 +7,7 @@ Created on Wed Jul 26 16:35:19 2023
 
 import logging
 
-from amodevices import FLIRBOSON
+from amodevices import FLIRBoson
 from amodevices.dev_exceptions import DeviceError
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ device = {
     }
 
 try:
-    device_instance = FLIRBOSON(device)
+    device_instance = FLIRBoson(device)
     # trace1 = device_instance.trace(1)
     # print(trace1.detector)
     stream_ret, frame = device_instance.read_frame()

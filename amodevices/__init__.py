@@ -6,4 +6,4 @@ from .thorlabs_pm100.thorlabs_pm100 import ThorlabsPM100
 from .rigol_rsa3000.rigol_rsa3000 import RigolRSA3000
 from .keysight_53220a.keysight_53220a import Keysight53220A
 from .srs_sim922.srs_sim922 import SRSSIM922
-from .flir_boson.flir_boson import FLIRBOSON
+from .flir_boson.flir_boson import FLIRBoson
