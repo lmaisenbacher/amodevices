@@ -29,6 +29,7 @@ setup(
         'pyvisa',
         'pyserial',
         'pylablib',
-        'PyDAQmx'
+        'PyDAQmx',
+        'opencv-python',
     ],
 )
