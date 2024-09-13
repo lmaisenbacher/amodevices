@@ -26,7 +26,8 @@ module_path = Path(Path(os.path.realpath(__file__)).parent).absolute()
 sys.path.append(str(module_path))
 
 # Now you can import the module
-from flir_boson_sdk import *
+# from flir_boson_sdk import *
+import flir_boson_sdk as fbsdk
 
 class FLIRBoson(dev_generic.Device):
     """Device driver for FLIR Boson thermal camera."""
@@ -36,14 +37,14 @@ class FLIRBoson(dev_generic.Device):
         super().__init__(device)
 
         # Initialize the camera
-        myCam = CamAPI.pyClient(manualport=device['Address'])
+        myCam = fbsdk.CamAPI.pyClient(manualport=device['Address'])
         self.myCam = myCam
 
         # Set camera gain mode
-        myCam.bosonSetGainMode(FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
-        myCam.TLinearSetControl(FLR_ENABLE_E.FLR_ENABLE)
+        myCam.bosonSetGainMode(fbsdk.FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
+        myCam.TLinearSetControl(fbsdk.FLR_ENABLE_E.FLR_ENABLE)
         status = myCam.sysctrlSetUsbVideoIR16Mode(
-            FLR_SYSCTRL_USBIR16_MODE_E.FLR_SYSCTRL_USBIR16_MODE_TLINEAR)
+            fbsdk.FLR_SYSCTRL_USBIR16_MODE_E.FLR_SYSCTRL_USBIR16_MODE_TLINEAR)
         print(status)
         print(myCam.sysctrlGetUsbVideoIR16Mode())
         radiometry_config = device.get('Radiometry', {})
@@ -55,16 +56,16 @@ class FLIRBoson(dev_generic.Device):
         myCam.radiometrySetTempAtmosphere(295)
         myCam.radiometrySetTempBackground(295)
         # necessary after setting radiometry parameters like window transmission
-        myCam.TLinearRefreshLUT(FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
+        myCam.TLinearRefreshLUT(fbsdk.FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
         myCam.bosonRunFFC()
 
         device_index = 1
         cap = cv2.VideoCapture(device_index + cv2.CAP_DSHOW)
-        self.cap = cap
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 256)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('Y', '1', '6', ' '))
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+        self.cap = cap
 
     def close(self):
         """Close connection to device."""
@@ -76,3 +77,8 @@ class FLIRBoson(dev_generic.Device):
         """Read frame from camera and return status `stream_ret` and image array `frame`."""
         stream_ret, frame = self.cap.read()
         return stream_ret, frame
+
+    def convert_frame_to_celsius(self, frame: np.ndarray) -> np.ndarray:
+        """Convert frame data from Kelvin to Celsius."""
+        temp_map_c = (frame / 100.0) - 273.15
+        return temp_map_c
