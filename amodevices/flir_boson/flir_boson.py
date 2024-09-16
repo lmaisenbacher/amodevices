@@ -37,10 +37,15 @@ class FLIRBoson(dev_generic.Device):
         super().__init__(device)
 
         # Initialize the camera
-        myCam = fbsdk.CamAPI.pyClient(manualport=device['Address'])
+        myCam = fbsdk.CamAPI.pyClient(manualport='COM7')
         self.myCam = myCam
+        # print(myCam.bosonGetCameraSN())
+        # myCam2 = fbsdk.CamAPI.pyClient(manualport='COM7')
+        # self.myCam2 = myCam2
+        # print(myCam2.bosonGetCameraSN())
+        # print("\n--------\n")
 
-        # Set camera gain mode
+        # Set camera gain mode`
         myCam.bosonSetGainMode(fbsdk.FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
         myCam.TLinearSetControl(fbsdk.FLR_ENABLE_E.FLR_ENABLE)
         status = myCam.sysctrlSetUsbVideoIR16Mode(
@@ -59,7 +64,7 @@ class FLIRBoson(dev_generic.Device):
         myCam.TLinearRefreshLUT(fbsdk.FLR_BOSON_GAINMODE_E.FLR_BOSON_HIGH_GAIN)
         myCam.bosonRunFFC()
 
-        device_index = 1
+        device_index = 0
         cap = cv2.VideoCapture(device_index + cv2.CAP_DSHOW)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 256)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
