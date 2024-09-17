@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.2',
+    version='0.1.3',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -23,6 +23,7 @@ setup(
         'amodevices.kjlc_xcg',
         'amodevices.keysight_53220a',
         'amodevices.srs_sim922',
+        'amodevices.flir_boson',
     ],
     install_requires=[
         'numpy',
