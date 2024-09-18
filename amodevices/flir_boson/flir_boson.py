@@ -10,7 +10,6 @@ Device driver for FLIR Boson thermal camera.
 import numpy as np
 import logging
 import sys
-import os
 import cv2
 from pathlib import Path
 
@@ -19,9 +18,8 @@ from ..dev_exceptions import DeviceError
 
 logger = logging.getLogger(__name__)
 
-# Construct the path to the directory containing SDK_USER_PERMISSIONS
-module_path = Path(Path(os.path.realpath(__file__)).parent).absolute()
-
+# Construct the path to the directory containing FLIR Boson SDK
+module_path = Path(__file__).parent.resolve()
 # Add the path to sys.path
 sys.path.append(str(module_path))
 
