@@ -24,6 +24,7 @@ setup(
         'amodevices.keysight_53220a',
         'amodevices.srs_sim922',
         'amodevices.flir_boson',
+        'amodevices.flir_boson.flir_boson_sdk',
     ],
     install_requires=[
         'numpy',
