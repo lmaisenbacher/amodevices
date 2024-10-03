@@ -1,8 +1,11 @@
 # Linting
 .pylint.d/
 
+# Manufacturer-supplied SDKs and binaries
+/amodevices/flir_boson/SDK_USER_PERMISSIONS/
+/amodevices/thorlabs_k10cr1/bin
+
 # Byte-compiled / optimized / DLL files
-bin/
 __pycache__/
 *.py[cod]
 *$py.class
