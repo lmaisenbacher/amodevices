@@ -9,9 +9,7 @@ Device driver for FLIR Boson thermal camera.
 
 import numpy as np
 import logging
-import sys
 import cv2
-from pathlib import Path
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
