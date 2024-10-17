@@ -7,3 +7,4 @@ from .rigol_rsa3000.rigol_rsa3000 import RigolRSA3000
 from .keysight_53220a.keysight_53220a import Keysight53220A
 from .srs_sim922.srs_sim922 import SRSSIM922
 from .flir_boson.flir_boson import FLIRBoson
+from .thorlabs_bc.thorlabs_bc import ThorlabsBC

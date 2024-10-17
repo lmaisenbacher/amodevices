@@ -24,6 +24,7 @@ setup(
         'amodevices.keysight_53220a',
         'amodevices.srs_sim922',
         'amodevices.flir_boson',
+        'amodevices.thorlabs_bc',
     ],
     install_requires=[
         'numpy',
