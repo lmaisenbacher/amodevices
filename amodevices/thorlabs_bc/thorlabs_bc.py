@@ -121,7 +121,6 @@ class ThorlabsBC(dev_generic.Device):
         device_info['PixelPitch'] = [pixel_pitch_h_c.value, pixel_pitch_v_c.value]
 
         self.device_info = device_info
-        print(device_info)
 
         # Init variables
         self.scan_data = None
@@ -149,6 +148,17 @@ class ThorlabsBC(dev_generic.Device):
             for field, _ in scan_data_struct._fields_
             }
         return scan_data_dict
+
+    def convert_px_to_um(self, value, axis=None):
+        """
+        Convert value `value` from pixel units to μm for axis `axis`
+        (either 'h' or 'v' or their aliases 'x' or 'y', respectively).
+        """
+        if axis in ['v', 'y']:
+            pixel_pitch = self.device_info['PixelPitch'][1]
+        else:
+            pixel_pitch = self.device_info['PixelPitch'][0]
+        return value*pixel_pitch
 
     def read_frame(self):
         """

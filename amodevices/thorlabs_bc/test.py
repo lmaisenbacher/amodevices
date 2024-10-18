@@ -22,6 +22,7 @@ device = {
 device_instance = None
 try:
     device_instance = ThorlabsBC(device)
+    print(device_instance.device_info)
     print(f'Auto exposure: {device_instance.auto_exposure}')
     device_instance.auto_exposure = True
     print(f'Auto exposure: {device_instance.auto_exposure}')
