@@ -22,27 +22,19 @@ device = {
 device_instance = None
 try:
     device_instance = ThorlabsBC(device)
-    print(device_instance.exposure_time)
+    print(f'Auto exposure: {device_instance.auto_exposure}')
+    device_instance.auto_exposure = True
+    print(f'Auto exposure: {device_instance.auto_exposure}')
+    print(f'Exposure time: {device_instance.exposure_time:.3f} ms')
     device_instance.exposure_time = 50
-    print(device_instance.exposure_time)
+    print(f'Exposure time: {device_instance.exposure_time:.3f} ms')
+    print(f'Auto exposure: {device_instance.auto_exposure}')
     scan_data, image_data = device_instance.read_frame()
     plt.imshow(image_data)
+    device_instance.auto_exposure = True
+    print(f'Auto exposure: {device_instance.auto_exposure}')
 except DeviceError as e:
     print(e.value)
 finally:
     if device_instance is not None:
         device_instance.close()
-
-
-#%%
-
-import numpy as np
-
-scan_data_dict = {
-    field: (
-        getattr(scan_data, field)
-        if len(np.ctypeslib.as_array(getattr(scan_data, field)).shape) == 0
-        else np.ctypeslib.as_array(getattr(scan_data, field))
-        )
-    for field, _ in scan_data._fields_
-    }

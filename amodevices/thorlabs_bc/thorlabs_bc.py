@@ -190,3 +190,19 @@ class ThorlabsBC(dev_generic.Device):
         err = self.bc2.set_exposure_time(exposure_time_c)
         if err != 0:
             self.error_exit(self.bc2, err)
+
+    @property
+    def auto_exposure(self) -> bool:
+        """Get auto exposure state (bool)."""
+        auto_exposure_c = c_bool(False)
+        err = self.bc2.get_auto_exposure(byref(auto_exposure_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return auto_exposure_c.value
+
+    @auto_exposure.setter
+    def auto_exposure(self, value: bool) -> None:
+        """Set auto exposure state (bool)."""
+        err = self.bc2.set_auto_exposure(TLBC2.VI_ON if value else TLBC2.VI_OFF)
+        if err != 0:
+            self.error_exit(self.bc2, err)
