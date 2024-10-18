@@ -175,7 +175,7 @@ class ThorlabsBC(dev_generic.Device):
             return scan_data, None
 
     @property
-    def exposure_time(self):
+    def exposure_time(self) -> float:
         """Get exposure time (float, units of ms)."""
         exposure_time_c = c_double(0)
         err = self.bc2.get_exposure_time(byref(exposure_time_c))
@@ -184,7 +184,7 @@ class ThorlabsBC(dev_generic.Device):
         return exposure_time_c.value
 
     @exposure_time.setter
-    def exposure_time(self, value):
+    def exposure_time(self, value: float) -> None:
         """Set exposure time to value `value` (float, units of ms)."""
         exposure_time_c = c_double(value)
         err = self.bc2.set_exposure_time(exposure_time_c)
@@ -204,5 +204,22 @@ class ThorlabsBC(dev_generic.Device):
     def auto_exposure(self, value: bool) -> None:
         """Set auto exposure state (bool)."""
         err = self.bc2.set_auto_exposure(TLBC2.VI_ON if value else TLBC2.VI_OFF)
+        if err != 0:
+            self.error_exit(self.bc2, err)
+
+    @property
+    def gain(self) -> float:
+        """Get gain (float, units of dB)."""
+        gain_c = c_double(0)
+        err = self.bc2.get_gain(byref(gain_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return gain_c.value
+
+    @gain.setter
+    def gain(self, value: float) -> None:
+        """Set gain to value `value` (float, units of dB)."""
+        gain_c = c_double(value)
+        err = self.bc2.set_gain(gain_c)
         if err != 0:
             self.error_exit(self.bc2, err)

@@ -25,6 +25,9 @@ try:
     print(f'Auto exposure: {device_instance.auto_exposure}')
     device_instance.auto_exposure = True
     print(f'Auto exposure: {device_instance.auto_exposure}')
+    print(f'Gain: {device_instance.gain}')
+    device_instance.gain = 10
+    print(f'Gain: {device_instance.gain}')
     print(f'Exposure time: {device_instance.exposure_time:.3f} ms')
     device_instance.exposure_time = 50
     print(f'Exposure time: {device_instance.exposure_time:.3f} ms')
