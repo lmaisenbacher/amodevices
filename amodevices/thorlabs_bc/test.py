@@ -32,3 +32,17 @@ except DeviceError as e:
 finally:
     if device_instance is not None:
         device_instance.close()
+
+
+#%%
+
+import numpy as np
+
+scan_data_dict = {
+    field: (
+        getattr(scan_data, field)
+        if len(np.ctypeslib.as_array(getattr(scan_data, field)).shape) == 0
+        else np.ctypeslib.as_array(getattr(scan_data, field))
+        )
+    for field, _ in scan_data._fields_
+    }

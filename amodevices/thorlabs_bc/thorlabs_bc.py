@@ -138,25 +138,38 @@ class ThorlabsBC(dev_generic.Device):
         """Close connection to device."""
         self.bc2.close()
 
+    @staticmethod
+    def convert_scan_data_struct_to_dict(scan_data_struct):
+        scan_data_dict = {
+            field: (
+                getattr(scan_data_struct, field)
+                if len(np.ctypeslib.as_array(getattr(scan_data_struct, field)).shape) == 0
+                else np.ctypeslib.as_array(getattr(scan_data_struct, field))
+                )
+            for field, _ in scan_data_struct._fields_
+            }
+        return scan_data_dict
+
     def read_frame(self):
         """
         Read frame from camera, analyse it, and return both analysis results
-        `scan_data` (`TLBC2.TLBC1_Calculations`) and image `image_data` (array).
+        `scan_data` (dict) and image `image_data` (array).
         """
-        scan_data = TLBC2.TLBC1_Calculations()
-        err = self.bc2.get_scan_data(byref(scan_data))
+        scan_data_struct = TLBC2.TLBC1_Calculations()
+        err = self.bc2.get_scan_data(byref(scan_data_struct))
+        scan_data = self.convert_scan_data_struct_to_dict(scan_data_struct)
         if err != 0:
             self.error_exit(err)
         self.scan_data = scan_data
-        if(scan_data.isValid):
+        if(scan_data['isValid']):
             # Read image
-            pixel_data = (((c_ubyte*scan_data.imageWidth)*scan_data.imageHeight)*2)()
+            pixel_data = (((c_ubyte*scan_data['imageWidth'])*scan_data['imageHeight'])*2)()
             width, height = c_ushort(0), c_ushort(0)
             bytes_per_pixel = c_uint8(2)
             err = self.bc2.get_image(
                 pixel_data, byref(width), byref(height), byref(bytes_per_pixel))
             image_data_flat = np.frombuffer(pixel_data, dtype='uint16')
-            image_data = image_data_flat.reshape(scan_data.imageHeight, scan_data.imageWidth)
+            image_data = image_data_flat.reshape(scan_data['imageHeight'], scan_data['imageWidth'])
             return scan_data, image_data
         else:
             return scan_data, None
