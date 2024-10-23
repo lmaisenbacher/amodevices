@@ -120,6 +120,9 @@ class ThorlabsBC(dev_generic.Device):
         device_info['Pixels'] = [pixels_h_c.value, pixels_v_c.value]
         device_info['PixelPitch'] = [pixel_pitch_h_c.value, pixel_pitch_v_c.value]
 
+        # Set clip level to 13.5 %
+        self.clip_level = 0.135
+
         self.device_info = device_info
 
         # Init variables
@@ -160,6 +163,10 @@ class ThorlabsBC(dev_generic.Device):
             pixel_pitch = self.device_info['PixelPitch'][0]
         return value*pixel_pitch
 
+    def clear_frame_queue(self):
+        """Clear frame queue to make sure we acquire a new frame."""
+        self.bc2.clearFrameQueue()
+
     def read_frame(self):
         """
         Read frame from camera, analyse it, and return both analysis results
@@ -183,6 +190,108 @@ class ThorlabsBC(dev_generic.Device):
             return scan_data, image_data
         else:
             return scan_data, None
+
+    def convert_scan_data(self, scan_data):
+        """
+        Convert some values from scan data `scan_data` (dict) returned by Thorlabs TLBC2 library
+        from sensor units (pixels) to absolute sensor dimensions (um), as measured from the sensor
+        center, along with reporting some other values such as sensor saturation.
+        Note that the zero position is the center of the sensor, with positive x and y values
+        towards the right and top, respectively, as seen by the laser beam.
+        """
+        left, top, width, height = self.roi
+        convert_px_to_um_x = lambda value: self.convert_px_to_um(value, axis='x')
+        convert_px_to_um_y = lambda value: self.convert_px_to_um(value, axis='y')
+        px_to_um_mean = np.mean([
+            self.convert_px_to_um(1, axis='x'),
+            self.convert_px_to_um(1, axis='y')
+            ])
+        px_to_um = lambda value: value*px_to_um_mean
+        convert_px_pos_x = lambda pos_px_x: (
+            convert_px_to_um_x(pos_px_x+left-self.device_info['Pixels'][0]/2))
+        convert_px_pos_y = lambda pos_px_y: (
+            -convert_px_to_um_y(pos_px_y+top-self.device_info['Pixels'][1]/2))
+        auto_calculation_area, calculation_area_shape = self.calculation_area_mode
+        if calculation_area_shape == 0:
+            calculation_area_shape_name = 'Rectangle'
+        elif calculation_area_shape == 1:
+            calculation_area_shape_name = 'Ellipse'
+        elif calculation_area_shape == 2:
+            calculation_area_shape_name = 'IsoAuto'
+        # All positions and widths are in units of um
+        beam_profile_data = {
+            # Camera parameters
+            # Exposure time (ms)
+            'ExposureTime': self.exposure_time,
+            # Auto exposure state
+            'AutoExposure': self.auto_exposure,
+            # Gain (dB)
+            'Gain': self.gain,
+            # Various intensity counts (or analog-to-digital units (ADU)) of the sensor.
+            # Note that the raw image data, as it uses unsigned integer for the intensity counts,
+            # has minimum and maximum intensity counts values of 0 and (2^N)-2, respectively,
+            # where N is the bit-depth of the digitizer.
+            # Base level intensity counts
+            # This seems to be a camera-specific, hardcoded value if the ambient light correction
+            # is disabled.
+            # Note that the raw image data, as it uses unsigned integer for the intensity counts,
+            # does not have this base level removed.
+            'Intensity_BaseLevel_ADU': scan_data['baseLevel'],
+            # Minimum intensity counts supported by camera, after having subtracted base level
+            # intensity counts, i.e., 0-'Intensity_BaseLevel_ADU'
+            'Intensity_Range_Min_ADU': scan_data['minIntensity'],
+            # Maximum intensity counts support by camera, after having subtracted base level
+            # intensity counts
+            'Intensity_Range_Max_ADU': scan_data['maxIntensity'],
+            # Peak intensity counts of current image, before having subtracted base level
+            # intensity counts (maximum is (2^N)-2)
+            'Intensity_Peak_ADU': scan_data['peakIntensity'],
+            # Saturation, i.e., ratio of peak intensity counts to maximum intensity counts possible
+            'Saturation_Rel': scan_data['saturation'],
+            # Clip level used for beam clip width and ellipse calculation (default is 0.135 ~ 1/e^2)
+            'ClipLevel': self.clip_level,
+            # Region of interest (ROI)
+            'ROI_Left': convert_px_to_um_x(left-self.device_info['Pixels'][0]/2),
+            'ROI_Top': -convert_px_to_um_y(top-self.device_info['Pixels'][1]/2),
+            'ROI_Width': convert_px_to_um_x(width),
+            'ROI_Height': convert_px_to_um_y(height),
+            # Calculation area used to determine beam parameters (need not be identical to ROI)
+            'CalcArea_Auto': auto_calculation_area,
+            'CalcArea_Shape': calculation_area_shape_name,
+            'CalcArea_Center_X': convert_px_pos_x(scan_data['calcAreaCenterX']),
+            'CalcArea_Center_Y': convert_px_pos_y(scan_data['calcAreaCenterY']),
+            'CalcArea_Width': convert_px_to_um_x(scan_data['calcAreaWidth']),
+            'CalcArea_Height': convert_px_to_um_y(scan_data['calcAreaHeight']),
+            'CalcArea_Angle': scan_data['calcAreaAngle'],
+            # X and Y position of centroid, as measured from center of image
+            'Centroid_Position_X': convert_px_pos_x(scan_data['centroidPositionX']),
+            'Centroid_Position_Y': convert_px_pos_y(scan_data['centroidPositionY']),
+            # Ellipse fit
+            'Ellipse_Position_X': convert_px_pos_x(scan_data['ellipseCenterX']),
+            'Ellipse_Position_Y': convert_px_pos_y(scan_data['ellipseCenterY']),
+            # Ellipse diameters for the set clip level
+            'Ellipse_Diameter_Min': px_to_um(scan_data['ellipseDiaMin']),
+            'Ellipse_Diameter_Max': px_to_um(scan_data['ellipseDiaMax']),
+            'Ellipse_Diameter_Mean': px_to_um(scan_data['ellipseDiaMean']),
+            # Ellipse radii for the set clip level
+            'Ellipse_Radius_Min': px_to_um(scan_data['ellipseDiaMin'])/2,
+            'Ellipse_Radius_Max': px_to_um(scan_data['ellipseDiaMax'])/2,
+            'Ellipse_Radius_Mean': px_to_um(scan_data['ellipseDiaMean'])/2,
+            'Ellipse_Ellipticity': scan_data['ellipseEllipticity'],
+            'Ellipse_Orientation': scan_data['ellipseOrientation'],
+            # # 1D Gaussian fit for cuts along x- and y-axis through position defined with
+            # # `bc2.set_profile_cut_position`.
+            # # Center positions
+            # 'GaussFit_Position_X': convert_px_pos_x(scan_data['gaussianFitCentroidPositionX']),
+            # 'GaussFit_Position_Y': convert_px_pos_y(scan_data['gaussianFitCentroidPositionY']),
+            # # Beam diameters are measured at the 1/e^2 level
+            # 'GaussFit_Diameter_X': convert_px_to_um_x(scan_data['gaussianFitDiameterX']),
+            # 'GaussFit_Diameter_Y': convert_px_to_um_y(scan_data['gaussianFitDiameterY']),
+            # # Beam radii are measured at the 1/e^2 level
+            # 'GaussFit_Radius_X': convert_px_to_um_x(scan_data['gaussianFitDiameterX'])/2,
+            # 'GaussFit_Radius_Y': convert_px_to_um_y(scan_data['gaussianFitDiameterY'])/2,
+            }
+        return beam_profile_data
 
     @property
     def exposure_time(self) -> float:
@@ -231,5 +340,117 @@ class ThorlabsBC(dev_generic.Device):
         """Set gain to value `value` (float, units of dB)."""
         gain_c = c_double(value)
         err = self.bc2.set_gain(gain_c)
+        if err != 0:
+            self.error_exit(self.bc2, err)
+
+    @property
+    def roi(self) -> tuple:
+        """
+        Get the rectangle defining the region of interest (ROI) `(left, top, width, height)`
+        (tuple of four int, units of pixels).
+        """
+        left_c = c_uint16()
+        top_c = c_uint16()
+        width_c = c_uint16()
+        height_c = c_uint16()
+        err = self.bc2.get_roi(byref(left_c), byref(top_c), byref(width_c), byref(height_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return (left_c.value, top_c.value, width_c.value, height_c.value)
+
+    @roi.setter
+    def roi(self, rectangle: tuple) -> None:
+        """
+        Set the rectangle defining the region of interest (ROI) (units of pixels).
+        """
+        left, top, width, height = rectangle
+        err = self.bc2.set_roi(c_uint16(left), c_uint16(top), c_uint16(width), c_uint16(height))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+
+    @property
+    def calculation_area_mode(self) -> tuple:
+        """
+        Get the method for determining the calculation area. Returns the tuple `(automatic, form)`.
+        `automatic` (bool) is True if the calculation area is determined automatically.
+        Otherwise, the user-defined calculation area is used
+        (get/set with property `user_calculation_area`).
+        `form` (int) gives the shape of the calculation area:
+        0: rectangle, 1: ellipse, 2: "IsoAuto".
+        """
+        automatic_c = c_int16()
+        form_c = c_uint8()
+        err = self.bc2.get_calculation_area_mode(byref(automatic_c), byref(form_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return (automatic_c.value == TLBC2.VI_ON, form_c.value)
+
+    @calculation_area_mode.setter
+    def calculation_area_mode(self, calculation_area: tuple) -> None:
+        """
+        Set the method for determining the calculation area, using the tuple `(automatic, form)`.
+        `automatic` (bool) is True if the calculation area is determined automatically.
+        Otherwise, the user-defined calculation area is used
+        (get/set with property `user_calculation_area`).
+        `form` (int) gives the shape of the calculation area:
+        0: rectangle, 1: ellipse, 2: "IsoAuto".
+
+        BUG:
+        Using "TLBC2.py" from July 12, 2024 and Thorlabs Beam version 9.1.5787.615,
+        the calculation area mode cannot be set to user. An access violation is reported from the
+        DLL instead.
+        """
+        automatic, form = calculation_area
+        err = self.bc2.set_calculation_area_mode(
+            TLBC2.VI_ON if automatic else TLBC2.VI_OFF, c_uint8(form))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+
+    @property
+    def user_calculation_area(self) -> tuple:
+        """
+        Get the user calculation area in pixels,
+        returning the tuple `(center_x_pos, center_y_pos, width, height, angle)`.
+        """
+        center_x_pos_c = c_double()
+        center_y_pos_c = c_double()
+        width_c = c_double()
+        height_c = c_double()
+        angle_c = c_double()
+        err = self.bc2.get_user_calculation_area(
+            byref(center_x_pos_c), byref(center_y_pos_c), byref(width_c), byref(height_c),
+            byref(angle_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return (
+            center_x_pos_c.value, center_y_pos_c.value, width_c.value, height_c.value,
+            angle_c.value)
+
+    @user_calculation_area.setter
+    def user_calculation_area(self, user_calculation_area: tuple) -> None:
+        """
+        Get the user calculation area in pixels,
+        setting the tuple `(center_x_pos, center_y_pos, width, height, angle)`.
+        """
+        center_x_pos, center_y_pos, width, height, angle = user_calculation_area
+        err = self.bc2.set_user_calculation_area(
+            c_double(center_x_pos), c_double(center_y_pos), c_double(width), c_double(height),
+            c_double(angle))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+
+    @property
+    def clip_level(self) -> float:
+        """Get clip level (float)."""
+        clip_level_c = c_double()
+        err = self.bc2.get_clip_level(byref(clip_level_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return clip_level_c.value
+
+    @clip_level.setter
+    def clip_level(self, value: float) -> None:
+        """Set clip level to value `value` (float)."""
+        err = self.bc2.set_clip_level(c_double(value))
         if err != 0:
             self.error_exit(self.bc2, err)
