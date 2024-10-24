@@ -200,17 +200,18 @@ class ThorlabsBC(dev_generic.Device):
         towards the right and top, respectively, as seen by the laser beam.
         """
         left, top, width, height = self.roi
-        convert_px_to_um_x = lambda value: self.convert_px_to_um(value, axis='x')
-        convert_px_to_um_y = lambda value: self.convert_px_to_um(value, axis='y')
+        binning = self.binning
+        convert_px_to_um_x = lambda value: self.convert_px_to_um(binning*value, axis='x')
+        convert_px_to_um_y = lambda value: self.convert_px_to_um(binning*value, axis='y')
         px_to_um_mean = np.mean([
-            self.convert_px_to_um(1, axis='x'),
-            self.convert_px_to_um(1, axis='y')
+            self.convert_px_to_um(binning, axis='x'),
+            self.convert_px_to_um(binning, axis='y')
             ])
         px_to_um = lambda value: value*px_to_um_mean
         convert_px_pos_x = lambda pos_px_x: (
-            convert_px_to_um_x(pos_px_x+left-self.device_info['Pixels'][0]/2))
+            convert_px_to_um_x(pos_px_x+left-self.device_info['Pixels'][0]/2/binning))
         convert_px_pos_y = lambda pos_px_y: (
-            -convert_px_to_um_y(pos_px_y+top-self.device_info['Pixels'][1]/2))
+            -convert_px_to_um_y(pos_px_y+top-self.device_info['Pixels'][1]/2/binning))
         auto_calculation_area, calculation_area_shape = self.calculation_area_mode
         if calculation_area_shape == 0:
             calculation_area_shape_name = 'Rectangle'
@@ -227,6 +228,8 @@ class ThorlabsBC(dev_generic.Device):
             'AutoExposure': self.auto_exposure,
             # Gain (dB)
             'Gain': self.gain,
+            # Pixel binning (NxN pixels are binned, where N = `binning`)
+            'Binning': binning,
             # Various intensity counts (or analog-to-digital units (ADU)) of the sensor.
             # Note that the raw image data, as it uses unsigned integer for the intensity counts,
             # has minimum and maximum intensity counts values of 0 and (2^N)-2, respectively,
@@ -251,8 +254,8 @@ class ThorlabsBC(dev_generic.Device):
             # Clip level used for beam clip width and ellipse calculation (default is 0.135 ~ 1/e^2)
             'ClipLevel': self.clip_level,
             # Region of interest (ROI)
-            'ROI_Left': convert_px_to_um_x(left-self.device_info['Pixels'][0]/2),
-            'ROI_Top': -convert_px_to_um_y(top-self.device_info['Pixels'][1]/2),
+            'ROI_Left': convert_px_to_um_x(left-self.device_info['Pixels'][0]/2/binning),
+            'ROI_Top': -convert_px_to_um_y(top-self.device_info['Pixels'][1]/2/binning),
             'ROI_Width': convert_px_to_um_x(width),
             'ROI_Height': convert_px_to_um_y(height),
             # Calculation area used to determine beam parameters (need not be identical to ROI)
@@ -338,10 +341,44 @@ class ThorlabsBC(dev_generic.Device):
     @gain.setter
     def gain(self, value: float) -> None:
         """Set gain to value `value` (float, units of dB)."""
-        gain_c = c_double(value)
-        err = self.bc2.set_gain(gain_c)
+        err = self.bc2.set_gain(c_double(value))
         if err != 0:
             self.error_exit(self.bc2, err)
+
+    @property
+    def binning(self) -> int:
+        """
+        Get pixel binning (int):
+        1: full sensor resolution
+        2: 2x2 binning
+        4: 4x4 binning
+        8: 8x8 binning
+        16: 16x16 binning
+        """
+        binning_c = c_uint8()
+        err = self.bc2.get_binning(byref(binning_c))
+        if err != 0:
+            self.error_exit(self.bc2, err)
+        return binning_c.value
+
+    @binning.setter
+    def binning(self, value: int) -> None:
+        """
+        Set pixel binning to `value` (int):
+        1: full sensor resolution
+        2: 2x2 binning
+        4: 4x4 binning
+        8: 8x8 binning
+        16: 16x16 binning
+        """
+        if value not in [
+                TLBC2.TLBC2_No_Binning, TLBC2.TLBC2_Binning_2, TLBC2.TLBC2_Binning_4,
+                TLBC2.TLBC2_Binning_8, TLBC2.TLBC2_Binning_16]:
+            logger.error(f'Invalid pixel binning of {value} requested (must be 1, 2, 4, 8, or 16)')
+        else:
+            err = self.bc2.set_binning(c_uint8(value))
+            if err != 0:
+                self.error_exit(self.bc2, err)
 
     @property
     def roi(self) -> tuple:
