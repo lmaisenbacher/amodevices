@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 device = {
-    'Device': 'Rigol DG900Pro',
+    'Device': 'Rigol DG900 Pro',
     'Address': 'TCPIP0::192.168.50.42::inst0::INSTR',
     'Timeout': 10.,
     }
