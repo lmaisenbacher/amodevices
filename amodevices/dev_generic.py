@@ -104,6 +104,10 @@ class Device:
                 msg = 'VISA error: Could not connect to device!'
                 logger.error(msg)
                 raise DeviceError(msg)
+            else:
+                logger.info(
+                    'Connected to device \'%s\' with VISA resource name \'%s\'',
+                    self.device['Device'], self.device['Address'])
             if 'Timeout' in self.device:
                 self.visa_resource.timeout = self.device['Timeout']*1e3
             if self.device.get('VISAIDN', None) is not None:

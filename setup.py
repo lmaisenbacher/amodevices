@@ -25,6 +25,7 @@ setup(
         'amodevices.srs_sim922',
         'amodevices.flir_boson',
         'amodevices.thorlabs_bc',
+        'amodevices.rigol_dg900pro',
     ],
     install_requires=[
         'numpy',
