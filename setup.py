@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.4',
+    version='0.1.5',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -26,6 +26,7 @@ setup(
         'amodevices.flir_boson',
         'amodevices.thorlabs_bc',
         'amodevices.rigol_dg900pro',
+        'amodevices.siglent_ssa3000xplus',
     ],
     install_requires=[
         'numpy',
