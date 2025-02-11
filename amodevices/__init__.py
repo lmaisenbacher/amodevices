@@ -10,3 +10,4 @@ from .flir_boson.flir_boson import FLIRBoson
 from .thorlabs_bc.thorlabs_bc import ThorlabsBC
 from .rigol_dg900pro.rigol_dg900pro import RigolDG900Pro
 from .siglent_ssa3000xplus.siglent_ssa3000xplus import SiglentSSA3000XPlus
+from .rp_lockbox.rp_lockbox import RPLockbox

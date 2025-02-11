@@ -27,6 +27,7 @@ setup(
         'amodevices.thorlabs_bc',
         'amodevices.rigol_dg900pro',
         'amodevices.siglent_ssa3000xplus',
+        'amodevices.rp_lockbox',
     ],
     install_requires=[
         'numpy',
