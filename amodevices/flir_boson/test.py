@@ -39,9 +39,14 @@ try:
     while True:
         stream_ret, frame = device_instance.read_frame()
         print(stream_ret)
-        ax.imshow(frame)
-        fig.canvas.draw_idle()
-        fig.canvas.flush_events()
+        if not stream_ret:
+            print('Closing and re-opening USB video')
+            device_instance.close_usb_video()
+            device_instance.init_usb_video()
+        else:
+            ax.imshow(frame)
+            fig.canvas.draw_idle()
+            fig.canvas.flush_events()
         time.sleep(1)
 except DeviceError as e:
     print(e.value)

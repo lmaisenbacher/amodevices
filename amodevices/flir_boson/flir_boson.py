@@ -72,7 +72,12 @@ class FLIRBoson(dev_generic.Device):
         myCam.bosonRunFFC()
 
         # Configure CV2 to read out USB video from camera
-        cv2_config = device.get('CV2Config', {})
+        self.cv2_config = device.get('CV2Config', {})
+        self.init_usb_video()
+
+    def init_usb_video(self):
+        """Configure CV2 to read out USB video from camera."""
+        cv2_config = self.cv2_config
         device_index = cv2_config.get('DeviceIndex', 1)
         cap = cv2.VideoCapture(device_index + cv2.CAP_DSHOW)
         camera_resolution = cv2_config.get('Resolution', [320, 256])
@@ -82,10 +87,13 @@ class FLIRBoson(dev_generic.Device):
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
         self.cap = cap
 
+    def close_usb_video(self):
+        """Close USB video (via CV2) connection."""
+        self.cap.release()
+
     def close(self):
         """Close connection to device."""
-        self.cap.release()
-        cv2.destroyAllWindows()
+        self.close_usb_video()
         self.myCam.closeComm()
 
     def read_frame(self):
