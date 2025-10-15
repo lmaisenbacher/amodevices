@@ -22,6 +22,7 @@ setup(
         'amodevices.hvs_controller',
         'amodevices.kjlc_xcg',
         'amodevices.keysight_53220a',
+        'amodevices.srs_ctc100',
         'amodevices.srs_sim922',
         'amodevices.flir_boson',
         'amodevices.thorlabs_bc',
