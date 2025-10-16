@@ -28,13 +28,14 @@ setup(
         'amodevices.rigol_dg900pro',
         'amodevices.siglent_ssa3000xplus',
         'amodevices.rp_lockbox',
+        'amodevices.ni_daq',
     ],
     install_requires=[
         'numpy',
         'pyvisa',
         'pyserial',
         'pylablib',
-        'PyDAQmx',
         'opencv-python',
+        'nidaqmx',
     ],
 )
