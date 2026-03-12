@@ -25,7 +25,7 @@ _LVDATA_NS = 'http://www.ni.com/LVData'
 #
 # LiopStar-E ships a LabVIEW XML file containing grating and drive
 # parameters for the specific dye installed (grating density, orders,
-# angles, lever length, screw pitch, etc.).  These are used to convert
+# angles, lever length, screw pitch, etc.). These are used to convert
 # between wavelength and resonator motor step counts.
 #
 # Pass the XML path as 'GratingParamsXML' in the device dict, or
@@ -63,7 +63,7 @@ def load_grating_params_from_xml(xml_path):
     Parses the LabVIEW XML configuration file shipped with each LiopStar-E
     laser and returns a dict suitable for use as ``device['GratingParams']``.
 
-    All angles are stored in radians in the XML.  Grating densities are
+    All angles are stored in radians in the XML. Grating densities are
     stored in lines/m in the XML; they are converted to lines/mm here.
 
     :xml_path: path to the LiopStar calibration XML file
@@ -125,8 +125,8 @@ class LioptecLiopStar(dev_generic.Device):
     DEFAULT_PORT = 65510
     DEFAULT_TIMEOUT = 5.0
     DELIMITER = '\r\n'
-    SETTLE_POLL_INTERVAL = 0.05  # seconds between position reads in wait_for_motor_settle
-    SETTLE_COUNT = 5             # consecutive identical readings to declare motor settled
+    MOVE_POLL_INTERVAL = 0.020   # seconds between status polls in wait_for_move_complete
+    MOVE_START_TIMEOUT = 0.200   # seconds to wait for status to leave 'OK' after a move command
 
     def __init__(self, device, raise_on_warning=False):
         """Initialize driver for device configuration dict `device`.
@@ -144,8 +144,8 @@ class LioptecLiopStar(dev_generic.Device):
                 :func:`load_grating_params_from_xml`)
 
         :param raise_on_warning: if ``True``, protocol WARNING responses raise
-            :class:`DeviceError` in addition to being logged.  Can also be
-            changed on the instance after construction.  Default is ``False``.
+            :class:`DeviceError` in addition to being logged. Can also be
+            changed on the instance after construction. Default is ``False``.
         """
         super().__init__(device)
         self._socket = None
@@ -237,7 +237,7 @@ class LioptecLiopStar(dev_generic.Device):
         """Return `response`; raise :class:`DeviceError` on error or warning responses.
 
         ``'ERROR:'`` responses are always logged and always raise
-        :class:`DeviceError`.  ``'WARNING:'`` responses are always logged; if
+        :class:`DeviceError`. ``'WARNING:'`` responses are always logged; if
         `raise_on_warning` is ``True`` on this instance, :class:`DeviceError`
         is raised as well.
         """
@@ -431,6 +431,13 @@ class LioptecLiopStar(dev_generic.Device):
         Polls :meth:`get_status` every `poll_interval` seconds. Raises
         :class:`DeviceError` if status is 'ERROR' or `timeout` is exceeded.
 
+        .. note::
+            After a move command, ``GetStatus`` may continue returning ``'OK'``
+            for up to ~60 ms before transitioning to ``'MOVING'``. Calling
+            this method immediately after a move command may therefore return
+            prematurely before the move has started. Use
+            :meth:`wait_for_move_complete` for move completion detection.
+
         :timeout: maximum wait time in seconds (default: 30)
         :poll_interval: polling interval in seconds (default: 0.2)
         """
@@ -448,61 +455,93 @@ class LioptecLiopStar(dev_generic.Device):
                     f'waiting for ready (last status: {status})')
             time.sleep(poll_interval)
 
-    def wait_for_motor_settle(self, timeout=30., poll_interval=None, settle_count=None):
-        """Block until all motor positions have stopped changing.
+    def wait_for_move_complete(self, timeout=30., poll_interval=None,
+                               start_timeout=None, target_wavelength_nm=None):
+        """Block until a move command has completed.
 
-        Each poll cycle reads :meth:`get_actual_position` and :meth:`get_status`.
-        Raises :class:`DeviceError` if status is 'ERROR' or `timeout` is exceeded.
-        Returns the final positions dict once all motors have reported the same
-        position for `settle_count` consecutive reads.
+        Two detection strategies are used depending on whether calibration
+        is available:
 
-        :timeout: maximum wait time in seconds (default: 30)
-        :poll_interval: seconds between position reads (default: 0.05)
-        :settle_count: consecutive identical readings required (default: 5)
-        :returns: final positions dict {motor_name: step_count}
+        **With calibration** (`target_wavelength_nm` is given and
+        ``'GratingParams'`` is set): polls ``GetActualPosition`` and
+        ``GetStatus`` each iteration; returns when the resonator has reached
+        the target step count *and* status is ``'OK'`` (confirming FCU1/FCU2
+        have also finished). Handles all move sizes including tiny moves where
+        the status never transitions to ``'MOVING'``.
+
+        **Without calibration**: status-based two-phase polling.
+        Phase 1 — polls until status leaves ``'OK'`` (move started), up to
+        `start_timeout` seconds; returns immediately if it never does
+        (already at target). Phase 2 — polls until status returns to ``'OK'``.
+
+        Raises :class:`DeviceError` if status is ``'ERROR'`` or `timeout`
+        is exceeded.
+
+        :param timeout: maximum total wait time in seconds (default: 30)
+        :param poll_interval: seconds between polls
+            (default: ``MOVE_POLL_INTERVAL``)
+        :param start_timeout: (no-calibration path only) seconds to wait for
+            the move to start before assuming already at target
+            (default: ``MOVE_START_TIMEOUT``)
+        :param target_wavelength_nm: target wavelength in nm; enables the
+            calibration-based completion path when ``'GratingParams'`` is set
+        :returns: final positions dict ``{motor_name: step_count}``
         """
         if poll_interval is None:
-            poll_interval = self.SETTLE_POLL_INTERVAL
-        if settle_count is None:
-            settle_count = self.SETTLE_COUNT
-        motors = None
-        stable_counts = {}
-        confirmed = set()
-        prev_pos = {}
-        deadline = time.monotonic() + timeout
+            poll_interval = self.MOVE_POLL_INTERVAL
+        if start_timeout is None:
+            start_timeout = self.MOVE_START_TIMEOUT
 
+        # --- calibration-based path ---
+        if target_wavelength_nm is not None and 'GratingParams' in self.device:
+            target_steps = self._wavelength_to_resonator_steps(target_wavelength_nm)
+            deadline = time.monotonic() + timeout
+            while True:
+                status = self.get_status()
+                if status == 'ERROR':
+                    raise DeviceError(
+                        f'{self.device["Device"]}: System reported an error '
+                        f'while waiting for move to complete')
+                pos = self.get_actual_position()
+                if pos.get('Resonator') == target_steps and status == 'OK':
+                    return pos
+                if time.monotonic() > deadline:
+                    raise DeviceError(
+                        f'{self.device["Device"]}: Timed out after {timeout:.0f} s '
+                        f'waiting for move to complete (last status: {status})')
+                time.sleep(poll_interval)
+
+        # --- status-based path (no calibration) ---
+        deadline       = time.monotonic() + timeout
+        start_deadline = time.monotonic() + start_timeout
+
+        # Phase 1: wait for move to start
         while True:
             status = self.get_status()
             if status == 'ERROR':
                 raise DeviceError(
-                    f'{self.device["Device"]}: System reported an error while waiting for motor')
+                    f'{self.device["Device"]}: System reported an error '
+                    f'while waiting for move to start')
+            if status != 'OK':
+                break
+            if time.monotonic() > start_deadline:
+                # Status never left OK — already at target
+                return self.get_actual_position()
+            time.sleep(poll_interval)
 
-            pos = self.get_actual_position()
-
-            if motors is None:
-                motors = list(pos.keys())
-                stable_counts = {m: 0 for m in motors}
-
-            for m in motors:
-                if m in confirmed:
-                    continue
-                if pos.get(m) == prev_pos.get(m):
-                    stable_counts[m] += 1
-                    if stable_counts[m] >= settle_count:
-                        confirmed.add(m)
-                else:
-                    stable_counts[m] = 0
-
-            prev_pos = dict(pos)
-
-            if motors is not None and confirmed == set(motors):
-                return pos
-
+        # Phase 2: wait for move to finish
+        while True:
+            status = self.get_status()
+            if status == 'ERROR':
+                raise DeviceError(
+                    f'{self.device["Device"]}: System reported an error '
+                    f'while waiting for move to complete')
+            if status == 'OK':
+                return self.get_actual_position()
             if time.monotonic() > deadline:
                 raise DeviceError(
                     f'{self.device["Device"]}: Timed out after {timeout:.0f} s '
-                    f'waiting for motors to settle')
-
+                    f'waiting for move to complete (last status: {status})')
             time.sleep(poll_interval)
 
     # ------------------------------------------------------------------
@@ -522,7 +561,7 @@ class LioptecLiopStar(dev_generic.Device):
         """Convert `wavelength_nm` [nm] to resonator motor steps.
 
         Uses the analytical formula from the LIOP-TEC document "Formula steps
-        to lambda.pdf".  Raises :class:`DeviceError` if the wavelength is out
+        to lambda.pdf". Raises :class:`DeviceError` if the wavelength is out
         of the grating's valid range.
 
         :returns: integer step count
@@ -542,7 +581,7 @@ class LioptecLiopStar(dev_generic.Device):
         """Convert resonator motor `steps` to wavelength in nm.
 
         Uses the analytical formula from the LIOP-TEC document "Formula steps
-        to lambda.pdf".  Raises :class:`DeviceError` if the step count is out
+        to lambda.pdf". Raises :class:`DeviceError` if the step count is out
         of the valid range.
 
         :returns: wavelength in nm
@@ -580,12 +619,17 @@ class LioptecLiopStar(dev_generic.Device):
         return self._resonator_steps_to_wavelength(pos['Resonator'])
 
     def set_wavelength_and_wait(self, wavelength_nm, timeout=30.):
-        """Tune to `wavelength_nm` [nm] and block until all motors have settled.
+        """Tune to `wavelength_nm` [nm] and block until the move has completed.
+
+        Uses the calibration-based completion path if ``'GratingParams'`` is
+        set (see :meth:`wait_for_move_complete`), otherwise falls back to
+        status-based polling.
 
         :wavelength_nm: target wavelength in nm
         :timeout: maximum wait time in seconds (default: 30)
         :returns: raw response from SetWavelength command
         """
         response = self.set_wavelength(wavelength_nm)
-        self.wait_for_motor_settle(timeout=timeout)
+        self.wait_for_move_complete(timeout=timeout,
+                                    target_wavelength_nm=wavelength_nm)
         return response

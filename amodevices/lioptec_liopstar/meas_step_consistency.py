@@ -1,5 +1,5 @@
 """
-Check motor-step to wavelength conversion formula consistency for the
+Check (grating) motor-step to wavelength conversion formula consistency for the
 LIOP-TEC LiopStar-E dye laser.
 
 Sweeps over a set of wavelengths and compares the resonator step position
@@ -14,6 +14,7 @@ Update 'Address' to the IP address of the LiopStar Control PC before running.
 import logging
 import numpy as np
 from pathlib import Path
+
 from amodevices import LioptecLiopStar
 from amodevices.dev_exceptions import DeviceError
 

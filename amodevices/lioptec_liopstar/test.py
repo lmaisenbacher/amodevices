@@ -7,6 +7,7 @@ Update 'Address' to the IP address of the LiopStar Control PC before running.
 import logging
 import time
 from pathlib import Path
+
 from amodevices import LioptecLiopStar
 from amodevices.dev_exceptions import DeviceError
 
