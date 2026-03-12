@@ -26,7 +26,7 @@ _LVDATA_NS = 'http://www.ni.com/LVData'
 # LiopStar-E ships a LabVIEW XML file containing grating and drive
 # parameters for the specific dye installed (grating density, orders,
 # angles, lever length, screw pitch, etc.).  These are used to convert
-# between wavelength and Resonator motor step counts.
+# between wavelength and resonator motor step counts.
 #
 # Pass the XML path as 'GratingParamsXML' in the device dict, or
 # call `load_grating_params_from_xml()` directly and pass the result
@@ -497,7 +497,7 @@ class LioptecLiopStar(dev_generic.Device):
             time.sleep(poll_interval)
 
     # ------------------------------------------------------------------
-    # Wavelength ↔ motor-step conversion (Resonator only)
+    # Motor-step to wavelength conversion (resonator only)
     # ------------------------------------------------------------------
 
     def _get_grating_params(self):
@@ -510,7 +510,7 @@ class LioptecLiopStar(dev_generic.Device):
         return p
 
     def _wavelength_to_resonator_steps(self, wavelength_nm):
-        """Convert `wavelength_nm` [nm] to Resonator motor steps.
+        """Convert `wavelength_nm` [nm] to resonator motor steps.
 
         Uses the analytical formula from the LIOP-TEC document "Formula steps
         to lambda.pdf".  Raises :class:`DeviceError` if the wavelength is out
@@ -527,10 +527,10 @@ class LioptecLiopStar(dev_generic.Device):
                     f'{self.device["Device"]}: Wavelength {wavelength_nm} nm '
                     f'is out of range ({label}={val:.4f} outside [-1, 1])')
         phi = math.asin(psi1) + math.asin(psi2) - g['phi0']
-        return int(0.5 + (g['x0'] + g['L'] * math.sin(phi)) * g['n'] / g['p'])
+        return round(0.5 + (g['x0'] + g['L'] * math.sin(phi)) * g['n'] / g['p'])
 
     def _resonator_steps_to_wavelength(self, steps):
-        """Convert Resonator motor `steps` to wavelength in nm.
+        """Convert resonator motor `steps` to wavelength in nm.
 
         Uses the analytical formula from the LIOP-TEC document "Formula steps
         to lambda.pdf".  Raises :class:`DeviceError` if the step count is out
@@ -543,7 +543,7 @@ class LioptecLiopStar(dev_generic.Device):
         ratio = x / g['L']
         if not -1.0 <= ratio <= 1.0:
             raise DeviceError(
-                f'{self.device["Device"]}: Resonator position {steps} steps '
+                f'{self.device["Device"]}: resonator position {steps} steps '
                 f'is out of range (x/L={ratio:.4f} outside [-1, 1])')
         phi = math.asin(ratio) + g['phi0']
         alpha = g['m'] * g['d'] / 1e6
@@ -558,7 +558,7 @@ class LioptecLiopStar(dev_generic.Device):
         return numerator / denominator
 
     def get_wavelength(self):
-        """Return current wavelength in nm derived from the Resonator position.
+        """Return current wavelength in nm derived from the resonator position.
 
         Requires ``device['GratingParams']`` to be set (use
         :func:`load_grating_params_from_xml` to populate it).

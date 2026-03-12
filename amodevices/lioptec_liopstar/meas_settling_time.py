@@ -137,7 +137,7 @@ try:
 
     dev.remote_disconnect()
 
-    # Determine motor names from results, ordered Resonator first then FCU1, FCU2, ...
+    # Determine motor names from results, ordered resonator first then FCU1, FCU2, ...
     motors = sorted(
         (k[len('settle_'):-len('_s')] for k in results[0] if k.startswith('settle_')),
         key=lambda m: (0, '') if m == 'Resonator' else (1, m),

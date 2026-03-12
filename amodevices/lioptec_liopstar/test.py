@@ -6,6 +6,7 @@ Update 'Address' to the IP address of the LiopStar Control PC before running.
 
 import logging
 import time
+from pathlib import Path
 from amodevices import LioptecLiopStar
 from amodevices.dev_exceptions import DeviceError
 
@@ -17,6 +18,7 @@ device = {
     'Address': 'localhost',
     'Port': 65510,
     'Timeout': 5.,
+    'GratingParamsXML': Path(__file__).parent / 'LiopStar_0923LT0226_2400_Rh6G_560-570.xml',
 }
 
 dev = LioptecLiopStar(device)
@@ -37,7 +39,15 @@ try:
     start_time = time.perf_counter()
     dev.set_wavelength_and_wait(target_nm, timeout=60.)
     end_time = time.perf_counter()
-    print(f'Done after {end_time-start_time:.2f} s. Drive positions:', dev.get_actual_position())
+
+    pos = dev.get_actual_position()
+    wl_read = dev.get_wavelength()
+    steps_target = dev._wavelength_to_resonator_steps(target_nm)
+    print(f'Done after {end_time-start_time:.2f} s.')
+    print(f'  Target:   {target_nm:.4f} nm  →  {steps_target} steps (calculated)')
+    print(f'  Actual:   {wl_read:.4f} nm  →  {pos["Resonator"]} steps  '
+          f'(error: {(wl_read - target_nm)*1000:+.3f} pm, '
+          f'{pos["Resonator"] - steps_target:+d} steps)')
 
     dev.remote_disconnect()
 except DeviceError as e:

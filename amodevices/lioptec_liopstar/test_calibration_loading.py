@@ -1,5 +1,5 @@
 """
-Offline test for the wavelength ↔ motor-step conversion formulas.
+Offline test for the motor-step to wavelength conversion formula.
 
 No hardware connection required. Tests `load_grating_params_from_xml()` and
 the round-trip conversion using the supplied calibration XML file.
