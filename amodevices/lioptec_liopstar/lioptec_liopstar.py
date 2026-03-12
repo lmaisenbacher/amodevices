@@ -128,7 +128,7 @@ class LioptecLiopStar(dev_generic.Device):
     SETTLE_POLL_INTERVAL = 0.05  # seconds between position reads in wait_for_motor_settle
     SETTLE_COUNT = 5             # consecutive identical readings to declare motor settled
 
-    def __init__(self, device):
+    def __init__(self, device, raise_on_warning=False):
         """Initialize driver for device configuration dict `device`.
 
         Required keys:
@@ -142,11 +142,16 @@ class LioptecLiopStar(dev_generic.Device):
                 XML file; loaded automatically and stored as 'GratingParams'
             'GratingParams' (dict): pre-loaded grating parameters (see
                 :func:`load_grating_params_from_xml`)
+
+        :param raise_on_warning: if ``True``, protocol WARNING responses raise
+            :class:`DeviceError` in addition to being logged.  Can also be
+            changed on the instance after construction.  Default is ``False``.
         """
         super().__init__(device)
         self._socket = None
         self._remote_connected = False
         self.last_wavelength_nm = None
+        self.raise_on_warning = raise_on_warning
         if 'GratingParamsXML' in device:
             self.device['GratingParams'] = load_grating_params_from_xml(
                 device['GratingParamsXML'])
@@ -228,18 +233,22 @@ class LioptecLiopStar(dev_generic.Device):
         self._send(command)
         return self._recv()
 
-    def _parse_response(self, response, allow_warning=False):
-        """Return `response`; raise :class:`DeviceError` if it starts with 'ERROR:'.
+    def _parse_response(self, response):
+        """Return `response`; raise :class:`DeviceError` on error or warning responses.
 
-        WARNING responses are logged and returned (not raised) unless
-        `allow_warning` is False, in which case they are also logged but still
-        returned — warnings indicate non-critical issues per the protocol spec.
+        ``'ERROR:'`` responses are always logged and always raise
+        :class:`DeviceError`.  ``'WARNING:'`` responses are always logged; if
+        `raise_on_warning` is ``True`` on this instance, :class:`DeviceError`
+        is raised as well.
         """
         upper = response.upper()
         if upper.startswith('ERROR:'):
+            logger.error('%s: %s', self.device['Device'], response)
             raise DeviceError(f'{self.device["Device"]}: {response}')
         if upper.startswith('WARNING:'):
             logger.warning('%s: %s', self.device['Device'], response)
+            if self.raise_on_warning:
+                raise DeviceError(f'{self.device["Device"]}: {response}')
         return response
 
     # ------------------------------------------------------------------
