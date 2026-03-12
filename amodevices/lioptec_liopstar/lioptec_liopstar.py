@@ -6,15 +6,104 @@ Protocol reference: LIOPTEC - TCP-IP remote communication protocol
 Default port: 65510
 """
 
+import math
 import re
 import socket
 import logging
 import time
+import xml.etree.ElementTree as ET
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
 
 logger = logging.getLogger(__name__)
+
+_LVDATA_NS = 'http://www.ni.com/LVData'
+
+# ----------------------------------------------------------------------
+# LabVIEW XML helpers and calibration loader
+#
+# LiopStar-E ships a LabVIEW XML file containing grating and drive
+# parameters for the specific dye installed (grating density, orders,
+# angles, lever length, screw pitch, etc.).  These are used to convert
+# between wavelength and Resonator motor step counts.
+#
+# Pass the XML path as 'GratingParamsXML' in the device dict, or
+# call `load_grating_params_from_xml()` directly and pass the result
+# as 'GratingParams'.
+# ----------------------------------------------------------------------
+
+
+def _lv_cluster_vals(cluster_elem):
+    """Return a dict of {name: val_text} for all direct typed children of a
+    LabVIEW Cluster element (handles DBL, I32, U32, Boolean, String tags)."""
+    ns = _LVDATA_NS
+    result = {}
+    for child in cluster_elem:
+        name_elem = child.find(f'{{{ns}}}Name')
+        val_elem  = child.find(f'{{{ns}}}Val')
+        if name_elem is not None and val_elem is not None:
+            result[name_elem.text] = val_elem.text
+    return result
+
+
+def _find_cluster(parent, name):
+    """Return the first Cluster child whose Name equals `name`."""
+    ns = _LVDATA_NS
+    for cluster in parent.iter(f'{{{ns}}}Cluster'):
+        name_elem = cluster.find(f'{{{ns}}}Name')
+        if name_elem is not None and name_elem.text == name:
+            return cluster
+    return None
+
+
+def load_grating_params_from_xml(xml_path):
+    """Load GratingParams from a LiopStar calibration XML file.
+
+    Parses the LabVIEW XML configuration file shipped with each LiopStar-E
+    laser and returns a dict suitable for use as ``device['GratingParams']``.
+
+    All angles are stored in radians in the XML.  Grating densities are
+    stored in lines/m in the XML; they are converted to lines/mm here.
+
+    :xml_path: path to the LiopStar calibration XML file
+    :returns: ``GratingParams`` dict with keys d, m, theta, d_prime, m_prime,
+              L, x0, phi0, p, n
+    :raises ValueError: if required fields are missing or the file cannot be
+                        parsed
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    res_cluster = _find_cluster(root, 'ResonatorConfiguration')
+    if res_cluster is None:
+        raise ValueError(
+            f'Could not find ResonatorConfiguration in {xml_path}')
+
+    vals = _lv_cluster_vals(res_cluster)
+
+    required = ['Litrow', 'Littrow Order', 'Grazing', 'Grazing order',
+                'Grazing Angle', 'Linear Offset', 'Angle Offset',
+                'Screw Pitch', 'Lever Length',
+                'Steps per turn', 'Microsteps per Step']
+    missing = [k for k in required if k not in vals]
+    if missing:
+        raise ValueError(
+            f'Missing fields in ResonatorConfiguration: {missing}')
+
+    return {
+        'd':       float(vals['Grazing']) / 1000,     # lines/m → lines/mm
+        'm':       int(vals['Grazing order']),
+        'theta':   float(vals['Grazing Angle']),       # radians
+        'd_prime': float(vals['Litrow']) / 1000,       # lines/m → lines/mm
+        'm_prime': int(vals['Littrow Order']),
+        'L':       float(vals['Lever Length']),        # mm
+        'x0':      float(vals['Linear Offset']),       # mm
+        'phi0':    float(vals['Angle Offset']),        # radians
+        'p':       float(vals['Screw Pitch']),         # mm/turn
+        'n':       int(float(vals['Steps per turn']) *
+                       float(vals['Microsteps per Step'])),
+    }
 
 
 class LioptecLiopStar(dev_generic.Device):
@@ -30,7 +119,7 @@ class LioptecLiopStar(dev_generic.Device):
         dev.remote_disconnect()
         dev.close()
 
-    'Get*' commands do not require a remote connection; all other commands do.
+    ``Get*`` commands do not require a remote connection; all other commands do.
     """
 
     DEFAULT_PORT = 65510
@@ -49,11 +138,20 @@ class LioptecLiopStar(dev_generic.Device):
         Optional keys:
             'Port' (int): TCP port (default: 65510)
             'Timeout' (float): socket timeout in seconds (default: 5.0)
+            'GratingParamsXML' (str or Path): path to a LiopStar calibration
+                XML file; loaded automatically and stored as 'GratingParams'
+            'GratingParams' (dict): pre-loaded grating parameters (see
+                :func:`load_grating_params_from_xml`)
         """
         super().__init__(device)
         self._socket = None
         self._remote_connected = False
         self.last_wavelength_nm = None
+        if 'GratingParamsXML' in device:
+            self.device['GratingParams'] = load_grating_params_from_xml(
+                device['GratingParamsXML'])
+            logger.info('%s: Loaded grating parameters from "%s"',
+                        self.device['Device'], device['GratingParamsXML'])
 
     # ------------------------------------------------------------------
     # Connection management
@@ -131,7 +229,7 @@ class LioptecLiopStar(dev_generic.Device):
         return self._recv()
 
     def _parse_response(self, response, allow_warning=False):
-        """Return `response`; raise DeviceError if it starts with 'ERROR:'.
+        """Return `response`; raise :class:`DeviceError` if it starts with 'ERROR:'.
 
         WARNING responses are logged and returned (not raised) unless
         `allow_warning` is False, in which case they are also logged but still
@@ -397,6 +495,80 @@ class LioptecLiopStar(dev_generic.Device):
                     f'waiting for motors to settle')
 
             time.sleep(poll_interval)
+
+    # ------------------------------------------------------------------
+    # Wavelength ↔ motor-step conversion (Resonator only)
+    # ------------------------------------------------------------------
+
+    def _get_grating_params(self):
+        """Return ``GratingParams`` dict from device config or raise :class:`DeviceError`."""
+        p = self.device.get('GratingParams')
+        if p is None:
+            raise DeviceError(
+                f'{self.device["Device"]}: GratingParams not set in device '
+                f'config. Load them with load_grating_params_from_xml().')
+        return p
+
+    def _wavelength_to_resonator_steps(self, wavelength_nm):
+        """Convert `wavelength_nm` [nm] to Resonator motor steps.
+
+        Uses the analytical formula from the LIOP-TEC document "Formula steps
+        to lambda.pdf".  Raises :class:`DeviceError` if the wavelength is out
+        of the grating's valid range.
+
+        :returns: integer step count
+        """
+        g = self._get_grating_params()
+        psi1 = (g['m_prime'] * g['d_prime'] / 1e6) * (wavelength_nm / 2)
+        psi2 = (g['m'] * g['d'] / 1e6) * wavelength_nm - math.sin(g['theta'])
+        for label, val in (('ψ₁', psi1), ('ψ₂', psi2)):
+            if not -1.0 <= val <= 1.0:
+                raise DeviceError(
+                    f'{self.device["Device"]}: Wavelength {wavelength_nm} nm '
+                    f'is out of range ({label}={val:.4f} outside [-1, 1])')
+        phi = math.asin(psi1) + math.asin(psi2) - g['phi0']
+        return int(0.5 + (g['x0'] + g['L'] * math.sin(phi)) * g['n'] / g['p'])
+
+    def _resonator_steps_to_wavelength(self, steps):
+        """Convert Resonator motor `steps` to wavelength in nm.
+
+        Uses the analytical formula from the LIOP-TEC document "Formula steps
+        to lambda.pdf".  Raises :class:`DeviceError` if the step count is out
+        of the valid range.
+
+        :returns: wavelength in nm
+        """
+        g = self._get_grating_params()
+        x = steps * g['p'] / g['n'] - g['x0']
+        ratio = x / g['L']
+        if not -1.0 <= ratio <= 1.0:
+            raise DeviceError(
+                f'{self.device["Device"]}: Resonator position {steps} steps '
+                f'is out of range (x/L={ratio:.4f} outside [-1, 1])')
+        phi = math.asin(ratio) + g['phi0']
+        alpha = g['m'] * g['d'] / 1e6
+        beta  = g['m_prime'] * g['d_prime'] / 1e6
+        numerator = (
+            (4*alpha + 2*beta*math.cos(phi)) * math.sin(g['theta'])
+            + 2*math.sin(phi) * math.sqrt(
+                (beta * math.cos(g['theta']))**2
+                + 4*alpha * (alpha + beta*math.cos(phi)))
+        )
+        denominator = beta**2 + 4*alpha**2 + 4*alpha*beta*math.cos(phi)
+        return numerator / denominator
+
+    def get_wavelength(self):
+        """Return current wavelength in nm derived from the Resonator position.
+
+        Requires ``device['GratingParams']`` to be set (use
+        :func:`load_grating_params_from_xml` to populate it).
+
+        Does not require remote access.
+
+        :returns: wavelength in nm
+        """
+        pos = self.get_actual_position()
+        return self._resonator_steps_to_wavelength(pos['Resonator'])
 
     def set_wavelength_and_wait(self, wavelength_nm, timeout=30.):
         """Tune to `wavelength_nm` [nm] and block until all motors have settled.
