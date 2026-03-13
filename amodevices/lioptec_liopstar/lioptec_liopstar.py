@@ -322,12 +322,17 @@ class LioptecLiopStar(dev_generic.Device):
     def set_wavelength(self, wavelength_nm):
         """Request the laser to tune to `wavelength_nm` [nm].
 
+        The wavelength is sent to the hardware rounded to 4 decimal places
+        (0.0001 nm resolution), which is the wire format used by the LiopStar
+        Control software.
+
         This command returns immediately; use :meth:`set_wavelength_and_wait`
         to block until the move completes.
 
-        :wavelength_nm: target wavelength in nm (decimal point separator)
+        :wavelength_nm: target wavelength in nm
         :returns: raw response string from the control software
         """
+        wavelength_nm = round(wavelength_nm, 4)
         response = self._query(f'SetWavelength {wavelength_nm:.4f}')
         self._parse_response(response)
         self.last_wavelength_nm = wavelength_nm
@@ -564,9 +569,15 @@ class LioptecLiopStar(dev_generic.Device):
         to lambda.pdf". Raises :class:`DeviceError` if the wavelength is out
         of the grating's valid range.
 
+        The input is rounded to 4 decimal places before computing, matching
+        the wire format used by :meth:`set_wavelength` (``:.4f``). The step
+        count is computed as ``ceil(val)`` via ``round(0.5 + val)``, which
+        matches the rounding convention of the LiopStar Control software.
+
         :returns: integer step count
         """
         g = self._get_grating_params()
+        wavelength_nm = round(wavelength_nm, 4)   # match :.4f wire format
         psi1 = (g['m_prime'] * g['d_prime'] / 1e6) * (wavelength_nm / 2)
         psi2 = (g['m'] * g['d'] / 1e6) * wavelength_nm - math.sin(g['theta'])
         for label, val in (('ψ₁', psi1), ('ψ₂', psi2)):
@@ -621,9 +632,10 @@ class LioptecLiopStar(dev_generic.Device):
     def set_wavelength_and_wait(self, wavelength_nm, timeout=30.):
         """Tune to `wavelength_nm` [nm] and block until the move has completed.
 
-        Uses the calibration-based completion path if 'GratingParams' is
-        set (see :meth:`wait_for_move_complete`), otherwise falls back to
-        status-based polling.
+        The wavelength is rounded to 4 decimal places by :meth:`set_wavelength`
+        before being sent to the hardware. Uses the calibration-based completion
+        path if 'GratingParams' is set (see :meth:`wait_for_move_complete`),
+        otherwise falls back to status-based polling.
 
         :wavelength_nm: target wavelength in nm
         :timeout: maximum wait time in seconds (default: 30)

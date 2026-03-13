@@ -12,6 +12,7 @@ Update 'Address' to the IP address of the LiopStar Control PC before running.
 """
 
 import logging
+import random
 import numpy as np
 from pathlib import Path
 
@@ -30,8 +31,16 @@ device = {
 }
 
 # --- Sweep parameters ---
-WAVELENGTHS = np.linspace(560, 570, 11)   # nm
-MOVE_TIMEOUT = 60.                         # s
+WL_MIN       = 560.0   # nm
+WL_MAX       = 570.0   # nm
+N_POINTS     = 30
+MOVE_TIMEOUT = 10.     # s
+RANDOMIZE    = True    # True: random wavelengths; False: linspace
+
+if RANDOMIZE:
+    WAVELENGTHS = sorted(random.uniform(WL_MIN, WL_MAX) for _ in range(N_POINTS))
+else:
+    WAVELENGTHS = list(np.linspace(WL_MIN, WL_MAX, N_POINTS))
 
 
 dev = LioptecLiopStar(device)
@@ -46,33 +55,40 @@ try:
 
     results = []
     for target_nm in WAVELENGTHS:
-        print(f'  -> {target_nm:.4f} nm', end='', flush=True)
-        dev.set_wavelength_and_wait(target_nm, timeout=MOVE_TIMEOUT)
+        sent_nm    = round(target_nm, 4)
+        steps_calc = dev._wavelength_to_resonator_steps(target_nm)
+        print(f'  -> {target_nm:.5f} nm  ({steps_calc} steps)', end='', flush=True)
+        try:
+            dev.set_wavelength(target_nm)
+            dev.wait_for_move_complete(timeout=MOVE_TIMEOUT)
+        except DeviceError as e:
+            print(f'  FAILED: {e.value}')
+            continue
         pos = dev.get_actual_position()
         wl_read = dev.get_wavelength()
-        steps_calc = dev._wavelength_to_resonator_steps(target_nm)
         steps_actual = pos['Resonator']
         results.append({
             'target_nm':    target_nm,
+            'sent_nm':      sent_nm,
             'steps_calc':   steps_calc,
             'steps_actual': steps_actual,
             'wl_read_nm':   wl_read,
         })
-        delta_nu_MHz = -(wl_read - target_nm) * 1e-9 * 299792458 / (target_nm * 1e-9)**2 / 1e6
+        delta_nu_MHz = -(wl_read - sent_nm) * 1e-9 * 299792458 / (sent_nm * 1e-9)**2 / 1e6
         print(f'  done  (Δsteps = {steps_actual - steps_calc:+d}, '
-              f'Δλ = {(wl_read - target_nm)*1000:+.3f} pm, '
+              f'Δλ = {(wl_read - sent_nm)*1000:+.3f} pm, '
               f'Δν = {delta_nu_MHz:+.3f} MHz)')
 
     dev.remote_disconnect()
 
-    print(f'\n| {"target (nm)":>12} | {"calc steps":>12} | {"actual steps":>12} '
+    print(f'\n| {"target (nm)":>12} | {"sent (nm)":>12} | {"calc steps":>12} | {"actual steps":>12} '
           f'| {"Δ steps":>8} | {"λ_read (nm)":>12} | {"Δλ (pm)":>10} | {"Δν (MHz)":>10} |')
-    print(f'|{"-"*14}:|{"-"*14}:|{"-"*14}:|{"-"*10}:|{"-"*14}:|{"-"*12}:|{"-"*12}:|')
+    print(f'|{"-"*14}:|{"-"*14}:|{"-"*14}:|{"-"*14}:|{"-"*10}:|{"-"*14}:|{"-"*12}:|{"-"*12}:|')
     for r in results:
-        delta_nu_MHz = -(r["wl_read_nm"] - r["target_nm"]) * 1e-9 * 299792458 / (r["target_nm"] * 1e-9)**2 / 1e6
-        print(f'| {r["target_nm"]:12.4f} | {r["steps_calc"]:12d} | {r["steps_actual"]:12d} '
+        delta_nu_MHz = -(r["wl_read_nm"] - r["sent_nm"]) * 1e-9 * 299792458 / (r["sent_nm"] * 1e-9)**2 / 1e6
+        print(f'| {r["target_nm"]:12.5f} | {r["sent_nm"]:12.5f} | {r["steps_calc"]:12d} | {r["steps_actual"]:12d} '
               f'| {r["steps_actual"] - r["steps_calc"]:+8d} '
-              f'| {r["wl_read_nm"]:12.4f} | {(r["wl_read_nm"] - r["target_nm"])*1000:+10.3f} '
+              f'| {r["wl_read_nm"]:12.5f} | {(r["wl_read_nm"] - r["sent_nm"])*1000:+10.3f} '
               f'| {delta_nu_MHz:+10.3f} |')
 
 except DeviceError as e:
