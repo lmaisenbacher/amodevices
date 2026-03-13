@@ -30,6 +30,7 @@ setup(
         'amodevices.siglent_ssa3000xplus',
         'amodevices.rp_lockbox',
         'amodevices.ni_daq',
+        'amodevices.lioptec_liopstar',
     ],
     install_requires=[
         'numpy',
