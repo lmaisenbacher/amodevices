@@ -236,8 +236,8 @@ class LioptecLiopStar(dev_generic.Device):
     def _parse_response(self, response):
         """Return `response`; raise :class:`DeviceError` on error or warning responses.
 
-        ``'ERROR:'`` responses are always logged and always raise
-        :class:`DeviceError`. ``'WARNING:'`` responses are always logged; if
+        'ERROR:' responses are always logged and always raise
+        :class:`DeviceError`. 'WARNING:' responses are always logged; if
         `raise_on_warning` is ``True`` on this instance, :class:`DeviceError`
         is raised as well.
         """
@@ -432,8 +432,8 @@ class LioptecLiopStar(dev_generic.Device):
         :class:`DeviceError` if status is 'ERROR' or `timeout` is exceeded.
 
         .. note::
-            After a move command, ``GetStatus`` may continue returning ``'OK'``
-            for up to ~60 ms before transitioning to ``'MOVING'``. Calling
+            After a move command, ``GetStatus`` may continue returning 'OK'
+            for up to ~60 ms before transitioning to 'MOVING'. Calling
             this method immediately after a move command may therefore return
             prematurely before the move has started. Use
             :meth:`wait_for_move_complete` for move completion detection.
@@ -463,18 +463,18 @@ class LioptecLiopStar(dev_generic.Device):
         is available:
 
         **With calibration** (`target_wavelength_nm` is given and
-        ``'GratingParams'`` is set): polls ``GetActualPosition`` and
+        'GratingParams' is set): polls ``GetActualPosition`` and
         ``GetStatus`` each iteration; returns when the resonator has reached
-        the target step count *and* status is ``'OK'`` (confirming FCU1/FCU2
+        the target step count *and* status is 'OK' (confirming FCU1/FCU2
         have also finished). Handles all move sizes including tiny moves where
-        the status never transitions to ``'MOVING'``.
+        the status never transitions to 'MOVING'.
 
         **Without calibration**: status-based two-phase polling.
-        Phase 1 — polls until status leaves ``'OK'`` (move started), up to
+        Phase 1 — polls until status leaves 'OK' (move started), up to
         `start_timeout` seconds; returns immediately if it never does
-        (already at target). Phase 2 — polls until status returns to ``'OK'``.
+        (already at target). Phase 2 — polls until status returns to 'OK'.
 
-        Raises :class:`DeviceError` if status is ``'ERROR'`` or `timeout`
+        Raises :class:`DeviceError` if status is 'ERROR' or `timeout`
         is exceeded.
 
         :param timeout: maximum total wait time in seconds (default: 30)
@@ -484,7 +484,7 @@ class LioptecLiopStar(dev_generic.Device):
             the move to start before assuming already at target
             (default: ``MOVE_START_TIMEOUT``)
         :param target_wavelength_nm: target wavelength in nm; enables the
-            calibration-based completion path when ``'GratingParams'`` is set
+            calibration-based completion path when 'GratingParams' is set
         :returns: final positions dict ``{motor_name: step_count}``
         """
         if poll_interval is None:
@@ -621,15 +621,14 @@ class LioptecLiopStar(dev_generic.Device):
     def set_wavelength_and_wait(self, wavelength_nm, timeout=30.):
         """Tune to `wavelength_nm` [nm] and block until the move has completed.
 
-        Uses the calibration-based completion path if ``'GratingParams'`` is
+        Uses the calibration-based completion path if 'GratingParams' is
         set (see :meth:`wait_for_move_complete`), otherwise falls back to
         status-based polling.
 
         :wavelength_nm: target wavelength in nm
         :timeout: maximum wait time in seconds (default: 30)
-        :returns: raw response from SetWavelength command
+        :returns: final positions dict ``{motor_name: step_count}``
         """
-        response = self.set_wavelength(wavelength_nm)
-        self.wait_for_move_complete(timeout=timeout,
-                                    target_wavelength_nm=wavelength_nm)
-        return response
+        self.set_wavelength(wavelength_nm)
+        return self.wait_for_move_complete(timeout=timeout,
+                                           target_wavelength_nm=wavelength_nm)

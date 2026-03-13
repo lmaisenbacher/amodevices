@@ -4,7 +4,7 @@ Diagnostic: compare GetStatus and GetActualPosition (LiopStar Control API comman
 
 Sweeps a range of move sizes and for each one polls status and resonator
 step count at ~10 ms intervals, reporting when status left OK, when it
-returned to OK, and when steps reached their final value.
+returned to OK, and when steps reached their final value (if calibration is loaded).
 
 `raise_on_warning=True` is set so that out-of-range wavelength warnings are
 treated as errors and abort the current move cleanly.
@@ -43,9 +43,14 @@ def measure_move(dev, start_nm, target_nm):
     t0 = time.perf_counter()
     dev.set_wavelength(target_nm)
 
+    target_steps = (dev._wavelength_to_resonator_steps(target_nm)
+                    if 'GratingParams' in dev.device else None)
+
     records = []   # (elapsed_s, status, resonator_steps)
     prev_steps = None
     stable     = 0
+    post_count = 0   # extra reads collected after target+OK first seen
+    deadline   = time.perf_counter() + 60.
 
     while True:
         t      = time.perf_counter() - t0
@@ -54,14 +59,29 @@ def measure_move(dev, start_nm, target_nm):
         steps  = pos.get('Resonator')
         records.append((t, status, steps))
 
-        if steps == prev_steps:
-            stable += 1
-            if stable >= SETTLE_COUNT:
-                break
+        if target_steps is not None:
+            # Mirror the driver's calibration path: exit when target reached AND OK,
+            # then collect SETTLE_COUNT extra reads to catch post-settle activity
+            if post_count > 0:
+                post_count += 1
+                if post_count > SETTLE_COUNT:
+                    break
+            elif steps == target_steps and status == 'OK':
+                post_count = 1
         else:
-            stable = 0
-        prev_steps = steps
+            # No calibration: exit on step stability
+            if steps == prev_steps:
+                stable += 1
+                if stable >= SETTLE_COUNT:
+                    break
+            else:
+                stable = 0
 
+        if time.perf_counter() > deadline:
+            print('  WARNING: timed out before target step count was reached')
+            break
+
+        prev_steps = steps
         elapsed = time.perf_counter() - t0 - t
         time.sleep(max(0.0, POLL_INTERVAL - elapsed))
 
