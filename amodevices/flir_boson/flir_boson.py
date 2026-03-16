@@ -7,9 +7,10 @@ Created on Tue Oct 10 15:33:26 2023
 Device driver for FLIR Boson thermal camera.
 """
 
-import numpy as np
 import logging
+import numpy as np
 import cv2
+from pathlib import Path
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
@@ -24,11 +25,8 @@ logger = logging.getLogger(__name__)
 # Unitrap members.
 try:
     from . import SDK_USER_PERMISSIONS as fbsdk
-except ImportError as e:
-    logger.error(
-        'Failed to import FLIR Boson SDK, which must be copied to '
-        +'\'amodevices/flir_boson/SKD_USER_PERMISSIONS\' manually; '
-        +f'`FLIRBoson` device driver not functional: {e}')
+except ImportError:
+    pass
 
 class FLIRBoson(dev_generic.Device):
     """Device driver for FLIR Boson thermal camera."""
@@ -39,10 +37,10 @@ class FLIRBoson(dev_generic.Device):
 
         # Initialize the camera
         if 'fbsdk' not in globals():
+            sdk_path = Path(__file__).parent
             msg = (
-                'FLIR Boson SDK not imported, check if it is present in '
-                +'\'amodevices/flir_boson/SKD_USER_PERMISSIONS\''
-                )
+                f'FLIR Boson SDK not found. Copy the \'SDK_USER_PERMISSIONS\' '
+                f'directory from the SDK into \'{sdk_path}\' to enable this driver.')
             logger.error(msg)
             raise DeviceError(msg)
         myCam = fbsdk.CamAPI.pyClient(manualport=device['Address'])
