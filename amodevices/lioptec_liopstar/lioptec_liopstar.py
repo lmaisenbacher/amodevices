@@ -2,7 +2,8 @@
 Driver for the LIOP-TEC LiopStar-E dye laser, controlled via TCP/IP through
 the "LiopStar Control" software.
 
-Protocol reference: LIOPTEC - TCP-IP remote communication protocol
+Protocol reference: LIOPTEC - TCP-IP remote communication protocol (2012)
+Tested with LiopStar Control v4.
 Default port: 65510
 """
 
@@ -61,13 +62,13 @@ def load_grating_params_from_xml(xml_path):
     """Load GratingParams from a LiopStar calibration XML file.
 
     Parses the LabVIEW XML configuration file shipped with each LiopStar-E
-    laser and returns a dict suitable for use as ``device['GratingParams']``.
+    laser and returns a dict suitable for use as `device['GratingParams']`.
 
     All angles are stored in radians in the XML. Grating densities are
     stored in lines/m in the XML; they are converted to lines/mm here.
 
     :xml_path: path to the LiopStar calibration XML file
-    :returns: ``GratingParams`` dict with keys d, m, theta, d_prime, m_prime,
+    :returns: `GratingParams` dict with keys d, m, theta, d_prime, m_prime,
               L, x0, phi0, p, n
     :raises ValueError: if required fields are missing or the file cannot be
                         parsed
@@ -143,9 +144,9 @@ class LioptecLiopStar(dev_generic.Device):
             'GratingParams' (dict): pre-loaded grating parameters (see
                 :func:`load_grating_params_from_xml`)
 
-        :param raise_on_warning: if ``True``, protocol WARNING responses raise
+        :param raise_on_warning: if `True`, protocol WARNING responses raise
             :class:`DeviceError` in addition to being logged. Can also be
-            changed on the instance after construction. Default is ``False``.
+            changed on the instance after construction. Default is `False`.
         """
         super().__init__(device)
         self._socket = None
@@ -238,9 +239,10 @@ class LioptecLiopStar(dev_generic.Device):
 
         'ERROR:' responses are always logged and always raise
         :class:`DeviceError`. 'WARNING:' responses are always logged; if
-        `raise_on_warning` is ``True`` on this instance, :class:`DeviceError`
+        `raise_on_warning` is `True` on this instance, :class:`DeviceError`
         is raised as well.
         """
+        response = response.strip()
         upper = response.upper()
         if upper.startswith('ERROR:'):
             logger.error('%s: %s', self.device['Device'], response)
@@ -437,7 +439,7 @@ class LioptecLiopStar(dev_generic.Device):
         :class:`DeviceError` if status is 'ERROR' or `timeout` is exceeded.
 
         .. note::
-            After a move command, ``GetStatus`` may continue returning 'OK'
+            After a move command, `GetStatus` may continue returning 'OK'
             for up to ~60 ms before transitioning to 'MOVING'. Calling
             this method immediately after a move command may therefore return
             prematurely before the move has started. Use
@@ -468,8 +470,8 @@ class LioptecLiopStar(dev_generic.Device):
         is available:
 
         **With calibration** (`target_wavelength_nm` is given and
-        'GratingParams' is set): polls ``GetActualPosition`` and
-        ``GetStatus`` each iteration; returns when the resonator has reached
+        'GratingParams' is set): polls `GetActualPosition` and
+        `GetStatus` each iteration; returns when the resonator has reached
         the target step count *and* status is 'OK' (confirming FCU1/FCU2
         have also finished). Handles all move sizes including tiny moves where
         the status never transitions to 'MOVING'.
@@ -484,13 +486,13 @@ class LioptecLiopStar(dev_generic.Device):
 
         :param timeout: maximum total wait time in seconds (default: 30)
         :param poll_interval: seconds between polls
-            (default: ``MOVE_POLL_INTERVAL``)
+            (default: `MOVE_POLL_INTERVAL`)
         :param start_timeout: (no-calibration path only) seconds to wait for
             the move to start before assuming already at target
-            (default: ``MOVE_START_TIMEOUT``)
+            (default: `MOVE_START_TIMEOUT`)
         :param target_wavelength_nm: target wavelength in nm; enables the
             calibration-based completion path when 'GratingParams' is set
-        :returns: final positions dict ``{motor_name: step_count}``
+        :returns: final positions dict `{motor_name: step_count}`
         """
         if poll_interval is None:
             poll_interval = self.MOVE_POLL_INTERVAL
@@ -554,7 +556,7 @@ class LioptecLiopStar(dev_generic.Device):
     # ------------------------------------------------------------------
 
     def _get_grating_params(self):
-        """Return ``GratingParams`` dict from device config or raise :class:`DeviceError`."""
+        """Return `GratingParams` dict from device config or raise :class:`DeviceError`."""
         p = self.device.get('GratingParams')
         if p is None:
             raise DeviceError(
@@ -619,7 +621,7 @@ class LioptecLiopStar(dev_generic.Device):
     def get_wavelength(self):
         """Return current wavelength in nm derived from the resonator position.
 
-        Requires ``device['GratingParams']`` to be set (use
+        Requires `device['GratingParams']` to be set (use
         :func:`load_grating_params_from_xml` to populate it).
 
         Does not require remote access.
@@ -639,7 +641,7 @@ class LioptecLiopStar(dev_generic.Device):
 
         :wavelength_nm: target wavelength in nm
         :timeout: maximum wait time in seconds (default: 30)
-        :returns: final positions dict ``{motor_name: step_count}``
+        :returns: final positions dict `{motor_name: step_count}`
         """
         self.set_wavelength(wavelength_nm)
         return self.wait_for_move_complete(timeout=timeout,
