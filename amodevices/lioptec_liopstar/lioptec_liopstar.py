@@ -242,7 +242,7 @@ class LioptecLiopStar(dev_generic.Device):
         `raise_on_warning` is `True` on this instance, :class:`DeviceError`
         is raised as well.
         """
-        response = response.strip()
+        response = response.replace('\n', ' ').strip()
         upper = response.upper()
         if upper.startswith('ERROR:'):
             logger.error('%s: %s', self.device['Device'], response)
