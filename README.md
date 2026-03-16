@@ -24,7 +24,7 @@ Additionally, to run the high voltage controller server you also need to downloa
 |-------|--------|---------------|
 | `FLIRBoson` | FLIR Boson thermal camera | FLIR Boson SDK |
 | `Keysight53220A` | Keysight 53220A universal counter | VISA |
-| `LioptecLiopStar` | LIOP-TEC LiopStar-E dye laser | TCP/IP |
+| [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |
 | `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator | VISA |
 | `RigolRSA3000` | Rigol RSA3000 spectrum analyzer | VISA |
@@ -34,6 +34,6 @@ Additionally, to run the high voltage controller server you also need to downloa
 | `SRSSIM922` | SRS SIM922 diode temperature monitor | Serial |
 | `ThorlabsBC` | Thorlabs BC207 and BC210 beam profilers | Thorlabs Beam (DLL) |
 | `ThorlabsK10CR1` | Thorlabs K10CR1 motorized rotation mount | Thorlabs Kinesis (DLL) |
-| `ThorlabsKPA101` | Thorlabs KPA101 beam position aligner | USB serial (pyserial, APT protocol) |
+| [`ThorlabsKPA101`](amodevices/thorlabs_kpa101/README.md) | Thorlabs KPA101 beam position aligner | USB serial (pyserial, APT protocol) |
 | `ThorlabsMDT693B` | Thorlabs MDT693B 3-axis piezo controller | Serial |
 | `ThorlabsPM100` | Thorlabs PM100 power meter | VISA |
