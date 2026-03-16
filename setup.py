@@ -36,7 +36,6 @@ setup(
         'numpy',
         'pyvisa',
         'pyserial',
-        'pylablib',
         'opencv-python',
         'nidaqmx',
     ],

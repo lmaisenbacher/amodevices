@@ -7,6 +7,7 @@ Created on Wed Jul 26 16:35:19 2023
 
 import logging
 import time
+
 from amodevices import ThorlabsKPA101
 from amodevices.dev_exceptions import DeviceError
 
@@ -20,7 +21,7 @@ device = {
 try:
     device_instance = ThorlabsKPA101(device)
     device_instance.connect()
-    print(device_instance.KinesisQuadDetector.get_full_info())
+    print(device_instance.get_device_info())
     print(device_instance.sum)
     print(device_instance.xdiff)
     print(device_instance.ydiff)

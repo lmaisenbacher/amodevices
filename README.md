@@ -34,6 +34,6 @@ Additionally, to run the high voltage controller server you also need to downloa
 | `SRSSIM922` | SRS SIM922 diode temperature monitor | Serial |
 | `ThorlabsBC` | Thorlabs BC207 and BC210 beam profilers | Thorlabs Beam (DLL) |
 | `ThorlabsK10CR1` | Thorlabs K10CR1 motorized rotation mount | Thorlabs Kinesis (DLL) |
-| `ThorlabsKPA101` | Thorlabs KPA101 beam position aligner | USB (pylablib) |
+| `ThorlabsKPA101` | Thorlabs KPA101 beam position aligner | USB serial (pyserial, APT protocol) |
 | `ThorlabsMDT693B` | Thorlabs MDT693B 3-axis piezo controller | Serial |
 | `ThorlabsPM100` | Thorlabs PM100 power meter | VISA |
