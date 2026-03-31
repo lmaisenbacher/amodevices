@@ -133,3 +133,9 @@ inline code literals.  Plain `single backticks` are for parameter names.
 - [amodevices/dev_exceptions.py](amodevices/dev_exceptions.py) — `DeviceError`
 - [amodevices/__init__.py](amodevices/__init__.py) — package exports
 - [setup.py](setup.py) — package metadata and dependencies
+
+## Shell Commands
+
+Do not prefix Bash commands with `cd` into the project directory — the working directory
+is already set to the project root. Only use `cd` when you genuinely need a different
+working directory.

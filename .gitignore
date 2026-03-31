@@ -5,6 +5,9 @@
 /amodevices/flir_boson/SDK_USER_PERMISSIONS/
 /amodevices/thorlabs_k10cr1/bin
 
+# Claude code
+settings.local.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
