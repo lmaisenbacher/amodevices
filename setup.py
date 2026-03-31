@@ -31,6 +31,7 @@ setup(
         'amodevices.rp_lockbox',
         'amodevices.ni_daq',
         'amodevices.lioptec_liopstar',
+        'amodevices.caen_dt1470et',
     ],
     install_requires=[
         'numpy',
