@@ -7,6 +7,7 @@ CAEN user manual UM3372 rev 20 (April 2024), pages 29-31.
 """
 
 import socket
+import threading
 import logging
 
 import serial
@@ -19,6 +20,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT = 1470
 DEFAULT_TIMEOUT = 5.0
 DELIMITER = '\r\n'
+
+# Thread lock to avoid concurrent access to the shared TCP/serial socket
+# from different threads at the same time.
+# All callers of `_query()` are protected automatically.
+comm_lock = threading.Lock()
 
 # Channel status bits (p. 30 of UM3372)
 _STATUS_BITS = {
@@ -185,8 +191,9 @@ class CAENDT1470ET(dev_generic.Device):
 
     def _query(self, command):
         """Send `command` and return the response string."""
-        self._send(command)
-        return self._recv()
+        with comm_lock:
+            self._send(command)
+            return self._recv()
 
     # ------------------------------------------------------------------
     # Protocol helpers
