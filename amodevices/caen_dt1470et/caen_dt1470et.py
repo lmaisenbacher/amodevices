@@ -462,25 +462,29 @@ class CAENDT1470ET(dev_generic.Device):
     # All-channels setting
     # ------------------------------------------------------------------
 
-    def set_vset_all(self, voltage):
+    def set_vset_all(self, voltage, check_active=True):
         """Set output voltage of all channels to `voltage` (V).
 
-        Raises `DeviceError` if any channel is killed or disabled, or if
-        'MaxVoltage' is configured and `voltage` exceeds it.
+        Raises `DeviceError` if `check_active` is True and any channel is
+        killed or disabled, or if 'MaxVoltage' is configured and `voltage`
+        exceeds it.
         """
-        self._check_all_channels_active()
+        if check_active:
+            self._check_all_channels_active()
         if self._max_voltage is not None and voltage > self._max_voltage:
             raise DeviceError(
                 f'{self.device["Device"]}: Requested voltage {voltage} V '
                 f'exceeds software limit MaxVoltage={self._max_voltage} V')
         self._set_all_channels('VSET', val=voltage)
 
-    def set_on_all(self):
+    def set_on_all(self, check_active=True):
         """Turn all channels on.
 
-        Raises `DeviceError` if any channel is killed or disabled.
+        Raises `DeviceError` if `check_active` is True and any channel is
+        killed or disabled.
         """
-        self._check_all_channels_active()
+        if check_active:
+            self._check_all_channels_active()
         self._set_all_channels('ON')
 
     def set_off_all(self):
