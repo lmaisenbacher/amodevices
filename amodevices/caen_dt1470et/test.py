@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Test voltage — should stay well below 30 V
 TEST_VOLTAGE = 10.0
-# assert TEST_VOLTAGE <= 30.0, 'Test voltage must not exceed 30 V'
+assert TEST_VOLTAGE <= 30.0, 'Test voltage must not exceed 30 V'
 
 device = {
     'Device': 'CAEN DT1470ET',

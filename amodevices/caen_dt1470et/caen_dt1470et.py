@@ -89,6 +89,7 @@ class CAENDT1470ET(dev_generic.Device):
         self._conn_type = device.get('ConnectionType', 'ethernet').lower()
         self._bd = device.get('BoardAddress', 0)
         self._max_voltage = device.get('MaxVoltage')
+        self._num_ch = None
 
     # ------------------------------------------------------------------
     # Connection management
@@ -105,9 +106,10 @@ class CAENDT1470ET(dev_generic.Device):
                 f'{self.device["Device"]}: Unknown ConnectionType '
                 f'{self._conn_type!r}; must be "ethernet" or "usb"')
         self.device_connected = True
-        logger.info('%s: Connected via %s to %s',
+        self._num_ch = int(self._mon_board('BDNCH'))
+        logger.info('%s: Connected via %s to %s (%d channels)',
                     self.device['Device'], self._conn_type,
-                    self.device['Address'])
+                    self.device['Address'], self._num_ch)
 
     def _connect_ethernet(self):
         """Open TCP/IP connection."""
@@ -253,6 +255,13 @@ class CAENDT1470ET(dev_generic.Device):
         raise DeviceError(
             f'{self.device["Device"]}: No VAL field in response: {response}')
 
+    def _parse_values(self, response):
+        """Extract semicolon-separated VAL fields from a multi-channel response.
+
+        Returns a list of value strings, one per channel.
+        """
+        return self._parse_value(response).split(';')
+
     def _mon_channel(self, par, channel):
         """Send a MON command for `par` on `channel` and return the value string."""
         response = self._query(self._build_mon_cmd(par, channel=channel))
@@ -287,6 +296,26 @@ class CAENDT1470ET(dev_generic.Device):
             raise DeviceError(
                 f'{self.device["Device"]}: Channel {channel} is '
                 f'{"/".join(blocked)}; command ignored by hardware')
+
+    def _check_all_channels_active(self):
+        """Raise `DeviceError` if any channel is killed or disabled."""
+        for ch in range(self._num_ch):
+            self._check_channel_active(ch)
+
+    def _mon_all_channels(self, par):
+        """Send a MON command for `par` on all channels; return list of value strings."""
+        response = self._query(self._build_mon_cmd(par, channel=self._num_ch))
+        return self._parse_values(response)
+
+    def _mon_all_channels_float(self, par):
+        """Send a MON command for `par` on all channels; return list of floats."""
+        return [float(v) for v in self._mon_all_channels(par)]
+
+    def _set_all_channels(self, par, val=None):
+        """Send a SET command for `par` on all channels at once."""
+        response = self._query(
+            self._build_set_cmd(par, channel=self._num_ch, val=val))
+        self._parse_response(response)
 
     # ------------------------------------------------------------------
     # Channel monitoring
@@ -343,6 +372,34 @@ class CAENDT1470ET(dev_generic.Device):
     def get_imon_range(self, channel):
         """Return current monitor range of `channel` ('HIGH' or 'LOW')."""
         return self._mon_channel('IMRANGE', channel)
+
+    # ------------------------------------------------------------------
+    # All-channels monitoring
+    # ------------------------------------------------------------------
+
+    def get_vmon_all(self):
+        """Return monitored output voltages of all channels in V."""
+        return self._mon_all_channels_float('VMON')
+
+    def get_imon_all(self):
+        """Return monitored output currents of all channels in uA."""
+        return self._mon_all_channels_float('IMON')
+
+    def get_vset_all(self):
+        """Return voltage set points of all channels in V."""
+        return self._mon_all_channels_float('VSET')
+
+    def get_iset_all(self):
+        """Return current limit set points of all channels in uA."""
+        return self._mon_all_channels_float('ISET')
+
+    def get_status_all(self):
+        """Return raw status bit fields of all channels as a list of integers."""
+        return [int(v) for v in self._mon_all_channels('STAT')]
+
+    def get_status_str_all(self):
+        """Return active status flag names of all channels as a list of lists."""
+        return [_decode_bits(s, _STATUS_BITS) for s in self.get_status_all()]
 
     # ------------------------------------------------------------------
     # Channel setting
@@ -402,6 +459,43 @@ class CAENDT1470ET(dev_generic.Device):
         self._set_channel('MAXV', channel, val=voltage)
 
     # ------------------------------------------------------------------
+    # All-channels setting
+    # ------------------------------------------------------------------
+
+    def set_vset_all(self, voltage):
+        """Set output voltage of all channels to `voltage` (V).
+
+        Raises `DeviceError` if any channel is killed or disabled, or if
+        'MaxVoltage' is configured and `voltage` exceeds it.
+        """
+        self._check_all_channels_active()
+        if self._max_voltage is not None and voltage > self._max_voltage:
+            raise DeviceError(
+                f'{self.device["Device"]}: Requested voltage {voltage} V '
+                f'exceeds software limit MaxVoltage={self._max_voltage} V')
+        self._set_all_channels('VSET', val=voltage)
+
+    def set_on_all(self):
+        """Turn all channels on.
+
+        Raises `DeviceError` if any channel is killed or disabled.
+        """
+        self._check_all_channels_active()
+        self._set_all_channels('ON')
+
+    def set_off_all(self):
+        """Turn all channels off."""
+        self._set_all_channels('OFF')
+
+    def set_ramp_up_all(self, rate):
+        """Set ramp-up rate of all channels to `rate` (V/s)."""
+        self._set_all_channels('RUP', val=rate)
+
+    def set_ramp_down_all(self, rate):
+        """Set ramp-down rate of all channels to `rate` (V/s)."""
+        self._set_all_channels('RDW', val=rate)
+
+    # ------------------------------------------------------------------
     # Board monitoring
     # ------------------------------------------------------------------
 
@@ -411,7 +505,7 @@ class CAENDT1470ET(dev_generic.Device):
 
     def get_num_channels(self):
         """Return number of channels."""
-        return int(self._mon_board('BDNCH'))
+        return self._num_ch
 
     def get_firmware_release(self):
         """Return firmware release string."""
