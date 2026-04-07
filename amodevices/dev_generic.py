@@ -171,18 +171,19 @@ class Device:
         """Convert `value` to float."""
         try:
             value_ = float(value)
-        except ValueError:
-            raise DeviceError('Value \'%s\' is not of expected type \'float\'.', value)
+        except ValueError as e:
+            raise DeviceError(
+                f'Value \'{value}\' is not of expected type \'float\'.'
+            ) from e
         return value_
 
     def to_int(self, value):
         """Convert `value` to int."""
-        e ='Value \'{}\' is not of expected type \'int\'.'.format(value)
+        msg = f'Value \'{value}\' is not of expected type \'int\'.'
         try:
             value_float = float(value)
-        except ValueError:
-            raise DeviceError(e)
+        except ValueError as e:
+            raise DeviceError(msg) from e
         if not value_float.is_integer():
-            raise DeviceError(e)
-        else:
-            return int(value_float)
+            raise DeviceError(msg)
+        return int(value_float)

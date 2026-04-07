@@ -185,5 +185,8 @@ class NIDAQ(dev_generic.Device):
         try:
             self.ao_tasks[axis].write(voltage)
         except DaqWriteError as e:
-            raise DeviceError(e)
+            # Convention: pass a stringified message into `DeviceError`,
+            # chain the original exception via `from` so its traceback
+            # survives on `__cause__` for local debugging.
+            raise DeviceError(str(e)) from e
         self.ao_voltages[axis] = voltage
