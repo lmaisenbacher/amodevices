@@ -54,6 +54,8 @@ try:
     time_last_pulse = time_start
     num_pulses = 0
     beam_present = True
+    # Detection times of pulses (s), used to calculate the mean time between pulses
+    pulse_times = []
     while time.monotonic() - time_start < duration:
         # Check (and clear) the new-value flag of the operation status register
         if device_instance.new_value_available:
@@ -61,6 +63,7 @@ try:
             pulse_energy = device_instance.energy.last_value
             num_pulses += 1
             time_last_pulse = time.monotonic()
+            pulse_times.append(time_last_pulse)
             if not beam_present:
                 logger.info('Pulses detected again')
                 beam_present = True
@@ -73,5 +76,12 @@ try:
             time_last_pulse = time.monotonic()
         time.sleep(poll_interval)
     logger.info('Detected %d pulses in %.1f s', num_pulses, duration)
+    if num_pulses >= 2:
+        # Mean of the successive pulse intervals, which equals the total span divided by the
+        # number of intervals
+        mean_pulse_interval = (pulse_times[-1]-pulse_times[0])/(num_pulses-1)
+        logger.info(
+            'Mean time between pulses: %.1f ms (%.2f Hz)',
+            mean_pulse_interval*1e3, 1/mean_pulse_interval)
 except DeviceError as e:
     print(e.value)
