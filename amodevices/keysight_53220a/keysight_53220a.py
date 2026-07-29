@@ -2,7 +2,7 @@
 """
 Created on Tue May 8 01:48:26 2024
 
-@author: Jack Mango/Berkeley
+@author: Jack Mango/UC Berkeley
 
 Device driver for Keysight 53220A series universal counter, controlled through VISA.
 """
@@ -33,13 +33,13 @@ class Keysight53220A(dev_generic.Device):
         def level(self, voltage):
             """ Set trigger level to `voltage` (Volts, float)."""
             return self.outer_instance.visa_write(f'INPut{self.channel}:LEVel {voltage}')
-        
+
         @property
         def noise_reject(self):
             """ Get state of noise rejection algorithm (hysteresis) on input channel."""
             rsp = self.outer_instance.visa_query(f'INPut{self.channel}:NREject?')
             return rsp == 'ON'
-        
+
         @noise_reject.setter
         def noise_reject(self, state):
             """ Set state of noise rejection algorithm (hysteresis) on input channel to `state`."""
@@ -59,7 +59,7 @@ class Keysight53220A(dev_generic.Device):
         def slope(self, slope_type):
             """Set the slope of the gate start trigger to `slope_type`, either: POSitive or NEGative."""
             return self.outer_instance.visa_write(f':GATE:STARt:SLOPe {slope_type}')
-        
+
         @property
         def delay(self):
             """Get gate start delay time."""
@@ -83,12 +83,12 @@ class Keysight53220A(dev_generic.Device):
     def totalize_data(self):
         """ Get the number of totalize events recorded."""
         return float(self.visa_query(':TOTalize:DATA?'))
-    
+
     @property
     def totalize_gate_time(self):
         """ Get gate time for totalize measurements in seconds."""
         return float(self.visa_query(':TOTalize:GATE:TIME?'))
-    
+
     @totalize_gate_time.setter
     def totalize_gate_time(self, time):
         """ Set gate time (s, float) for totalize measurements."""
@@ -97,4 +97,3 @@ class Keysight53220A(dev_generic.Device):
     def close(self):
         """Close connection to device."""
         self.visa_resource.close()
-

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 
-@author: Jack Mango/Berkeley
+@author: Jack Mango/UC Berkeley
 """
 
 import logging

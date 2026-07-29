@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Jack Mango/Berkeley
+@author: Jack Mango/UC Berkeley
 
 This is a device driver designed for the Matsusada J4-5P and KA-10P
 high voltage supplies. These supplies allow for the adjustment of output
@@ -15,7 +15,7 @@ it's been over a `cache_interval` since the last measurement the controller will
 another one for all channels.
 
 Measurement of monitor signals and setting of control signals is implemented using two
-separate PyDAQmx Tasks. There is an assumed ordering to the high voltage supplies set 
+separate PyDAQmx Tasks. There is an assumed ordering to the high voltage supplies set
 in the config file: The first four entries in the 'Monitors' dictionary should be for
 the voltage monitors, channels one through four. The last two should be the current
 monitors for the first, followed by the fourth high voltage supply. The 'Controls'
@@ -67,7 +67,7 @@ class hvsController(dev_generic.Device):
         except PyDAQmx.DAQmxFunctions.DevCannotBeAccessedError as e:
             self._connected = False
             raise DeviceError(f"Connection Error: {e}")
-        
+
     def config_ka10p(self, channel):
         """
         Configure the analog readout and controls for a Matsusada KA-10P high voltage supply.
@@ -104,8 +104,8 @@ class hvsController(dev_generic.Device):
         self._currents[channel['name']] = np.nan
         self._write_voltages[channel['name']] = 0
         self._names.append(channel['name'])
-        return  
-    
+        return
+
     def config_j45(self, channel):
             """
         Configure the analog readout and controls for a Matsusada J4-5X high voltage supply.
@@ -131,15 +131,15 @@ class hvsController(dev_generic.Device):
             self._write_voltages[channel['name']] = 0
             self._names.append(channel['name'])
             return
-            
-        
+
+
     def connected(self):
         """
         Whether there was an issue connecting to the NI cards. False indicates there was
         and error.
         """
         return self._connected
-        
+
     def set_name(self, channel_name, new_name):
         """Change the high voltage supply with name `channel_name` to `new_name`."""
         if new_name in self._names:
@@ -188,10 +188,10 @@ class hvsController(dev_generic.Device):
             (time.time()-self._last_reading_time > self._cache_interval):
             self.update_readings()
         return self._currents[channel_name]
-    
+
     def update_readings(self):
         """
-        Measure and cache the voltage and current for all high voltage supplies. 
+        Measure and cache the voltage and current for all high voltage supplies.
         """
         values = self._measure_voltage()
         i = 0
@@ -206,8 +206,8 @@ class hvsController(dev_generic.Device):
                 voltage_scaling = 1000
                 self._voltages[chan['name']] = values[i] * voltage_scaling
                 i += 1
-        
-        
+
+
     def _measure_voltage(self, n_samples=64):
         """
         Perform unscaled voltage measurement from analog to digital converters.
@@ -236,9 +236,9 @@ class hvsController(dev_generic.Device):
             self._connected = False
             raise DeviceError(f"Connection Error: {e}")
         except PyDAQmx.DAQError as e:
-            raise DeviceError(f"Received NI Card Error; {e}") 
-        
-    # New problem: if we change the name, the order of the _write_voltages changes relative to what they were stored as 
+            raise DeviceError(f"Received NI Card Error; {e}")
+
+    # New problem: if we change the name, the order of the _write_voltages changes relative to what they were stored as
     # in the task...
 
     def set_voltage(self, channel_name, value):
@@ -254,7 +254,7 @@ class hvsController(dev_generic.Device):
         self._write_voltages[channel_name] = value * scaling
         self._update_voltages()
         return
-    
+
     def _update_voltages(self):
         """
         Write the voltages in `self._write_voltages` to the digital to analog converter.
@@ -276,7 +276,7 @@ class hvsController(dev_generic.Device):
             raise DeviceError(f"Received NI Card Error; {e}")
         if not samps_written:
             raise DeviceError("Requested and written samples mismatch!")
-        
+
     def close(self):
         """
         End the tasks used to monitor and control the high voltage supplies.

@@ -2,7 +2,7 @@
 """
 Created on Wed Jul 26 16:35:19 2023
 
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 """
 
 import logging

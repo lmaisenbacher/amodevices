@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 
 Device driver for Thorlabs KPA101 beam position aligner, using pyserial and
 the Thorlabs APT binary protocol directly.

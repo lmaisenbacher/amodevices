@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Chris Zavik and Lothar Maisenbacher/Berkeley
+@author: Chris Zavik and Lothar Maisenbacher/UC Berkeley
 
 Device driver for Stanford Research Instruments (SRS) SIM922 diode temperature monitor.
 """

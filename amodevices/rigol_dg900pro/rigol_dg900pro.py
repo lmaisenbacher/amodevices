@@ -2,7 +2,7 @@
 """
 Created on Mon Nov 18 15:17:00 2024
 
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 
 Device driver for Rigol DG800 Pro/DG900 Pro function generator, controlled through VISA.
 """

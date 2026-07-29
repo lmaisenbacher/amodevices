@@ -2,7 +2,7 @@
 """
 Created on Tue Oct 10 15:33:26 2023
 
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 
 Device driver for Rigol RSA3000 series spectrum analyzer, controlled through VISA.
 """

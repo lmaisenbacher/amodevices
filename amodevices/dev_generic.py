@@ -2,7 +2,7 @@
 """
 Created on Wed Mar  7 16:55:25 2018
 
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 
 Generic device driver.
 """
