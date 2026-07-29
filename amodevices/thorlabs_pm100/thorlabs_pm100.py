@@ -2,12 +2,16 @@
 """
 Created on Tue Oct 10 15:33:26 2023
 
-@author: Lothar Maisenbacher/Berkeley
+@author: Lothar Maisenbacher/UC Berkeley
 
 Device driver for Thorlabs PM100D power meter, controlled through VISA.
 Other Thorlabs power meters are supported in "PM100D" mode (see below), including:
 - PM101(R)
 - PM16-121
+
+Both power sensors (photodiode and thermal) and pyroelectric energy sensors (e.g. ES111C) are
+supported, with power measurements accessed through the `power` interface and pulse energy
+measurements through the `energy` interface.
 
 The Thorlabs power meters are controlled through NI VISA
 (https://www.ni.com/en/support/downloads/drivers/download.ni-visa.html), which must be installed on
@@ -43,7 +47,7 @@ class ThorlabsPM100(dev_generic.Device):
 
         @property
         def idn(self):
-            """Get x-axis alignment difference signal in volts."""
+            """Get sensor identification string (str) and parse its fields."""
             self._idn = self.outer_instance.visa_query('SYSTem:SENSor:IDN?')
             self._name, self._sn, self._cal_msg, _type, _subtype, _flags = (
                 self._idn.split(','))
@@ -146,6 +150,72 @@ class ThorlabsPM100(dev_generic.Device):
             """Get current power reading (float) in units of `self.unit`."""
             return float(self.outer_instance.visa_query('MEASure:POWer?'))
 
+    class _energy():
+
+        def __init__(self, outer_instance):
+            self.outer_instance = outer_instance
+
+        @property
+        def range(self):
+            """Get energy range (float) in units of joule (J)."""
+            return float(self.outer_instance.visa_query('SENSe:ENERgy:RANGe?'))
+
+        @range.setter
+        def range(self, range_):
+            """
+            Set energy range to `range_` (float) in units of joule (J).
+            Only manual ranging is available for energy sensors; the device will round the value
+            to the next suitable range.
+            """
+            return self.outer_instance.visa_write(f'SENSe:ENERgy:RANGe {range_}')
+
+        @property
+        def trigger_level(self):
+            """Get trigger level (float) in percent (%) of the selected energy range."""
+            return float(self.outer_instance.visa_query('SENSe:PEAKdetector:THReshold?'))
+
+        @trigger_level.setter
+        def trigger_level(self, trigger_level):
+            """Set trigger level to `trigger_level` (float) in percent (%) of the selected
+            energy range. Must be between 1% and 70%."""
+            if not 1 <= trigger_level <= 70:
+                raise DeviceError(
+                    f'{self.outer_instance.device["Device"]}: '
+                    +'Trigger level must be between 1% and 70% of the selected energy range')
+            return self.outer_instance.visa_write(f'SENSe:PEAKdetector:THReshold {trigger_level}')
+
+        @property
+        def value(self):
+            """
+            Get energy reading (float) in units of joule (J).
+            This starts a new measurement, which completes with the next pulse exceeding the
+            trigger level. The VISA timeout ('Timeout' key of device dict) must be longer than
+            the time between pulses, otherwise a timeout error occurs.
+            """
+            return float(self.outer_instance.visa_query('MEASure:ENERgy?'))
+
+        @property
+        def last_value(self):
+            """Get last completed energy reading (float) in units of joule (J), without waiting
+            for a new pulse."""
+            return float(self.outer_instance.visa_query('FETCh?'))
+
+        def arm(self):
+            """
+            Configure device for energy measurement and start a continuously running
+            measurement. The device then updates the measurement value with each incoming pulse
+            exceeding the trigger level, setting the new-value flag of the operation status
+            register (see `new_value_available`). Read the value with `last_value`.
+            Unlike `value`, this never blocks, allowing a non-blocking readout loop that polls
+            `new_value_available` and fetches `last_value` when it returns True.
+            """
+            outer_instance = self.outer_instance
+            outer_instance.visa_write('CONFigure:ENERgy')
+            outer_instance.visa_write('ABORt')
+            # Reading the operation status event register clears it
+            outer_instance.visa_query('STATus:OPERation?')
+            outer_instance.visa_write('INITiate')
+
     def __init__(self, device, update_callback_func=None):
         """Initialize class for device `device` (dict)."""
         super().__init__(device)
@@ -153,6 +223,7 @@ class ThorlabsPM100(dev_generic.Device):
         self.init_visa()
         self.sensor = self._sensor(self)
         self.power = self._power(self)
+        self.energy = self._energy(self)
 
     def close(self):
         """Close connection to device."""
@@ -179,6 +250,24 @@ class ThorlabsPM100(dev_generic.Device):
         return self.visa_write(f'SENSe:CORRection:BEAMdiameter {diameter}')
 
     @property
+    def new_value_available(self):
+        """
+        Check whether a new measurement value is available to read with `FETCh?` (bool).
+        Reads the operation status event register and tests the new-value flag (bit 512).
+        Reading the register clears it, so this returns True only once per new value.
+        """
+        return bool(int(self.visa_query('STATus:OPERation?')) & 512)
+
+    @property
+    def frequency(self):
+        """
+        Get frequency reading (float) in units of hertz (Hz).
+        For energy sensors this is the pulse repetition rate, for power sensors the frequency of
+        a pulsed, modulated, or chopped light source.
+        """
+        return float(self.visa_query('MEASure:FREQuency?'))
+
+    @property
     def num_averages(self):
         """Get number of averages (int)."""
         return int(self.visa_query('SENSe:AVERage:COUNt?'))
@@ -194,5 +283,5 @@ class ThorlabsPM100(dev_generic.Device):
 
     @property
     def zero_magnitude(self):
-        """Get applied voltage offset fron zero adjustment (float) in units of volt."""
+        """Get applied voltage offset from zero adjustment (float) in units of volt."""
         return float(self.visa_query('SENSe:CORRection:COLLect:ZERO:MAGNitude?'))
