@@ -26,6 +26,12 @@ device = {
     'Address': 'USB0::0x1313::0x8078::P0045954::INSTR',
     }
 
+# Energy range (float, J), or None to keep the current device setting.
+# The device rounds the value to the next suitable range.
+energy_range = None
+# Trigger level (float) in percent (%) of the selected energy range (1% to 70%),
+# or None to keep the current device setting
+trigger_level = 10.
 # Polling interval (s)
 poll_interval = 0.02
 # Time without pulse after which 'No pulse detected' is reported (s).
@@ -43,6 +49,15 @@ try:
     logger.info(
         'Connected to energy sensor \'%s\' (serial number \'%s\')',
         device_instance.sensor.name, device_instance.sensor.serial_number)
+
+    # Set energy range and trigger level if requested, and report the values actually in use
+    if energy_range is not None:
+        device_instance.energy.range = energy_range
+    if trigger_level is not None:
+        device_instance.energy.trigger_level = trigger_level
+    logger.info(
+        'Energy range: %.3e J, trigger level: %.1f%% of range',
+        device_instance.energy.range, device_instance.energy.trigger_level)
 
     # Each pulse is a single sample, so averaging must be disabled for per-pulse readout
     device_instance.num_averages = 1
