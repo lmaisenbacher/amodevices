@@ -23,6 +23,7 @@ VISA.
 """
 
 import logging
+import time
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
@@ -194,25 +195,71 @@ class ThorlabsPM100(dev_generic.Device):
             """
             return float(self.outer_instance.visa_query('MEASure:ENERgy?'))
 
+        # SCPI "no valid data" sentinel returned by 'FETCh?' when no completed
+        # measurement is in the output buffer (nominally 9.91e37); also seen
+        # transiently for ~ms right after the new-value flag sets, before the
+        # value lands in the buffer
+        NO_DATA_SENTINEL = 9e37
+
         @property
         def last_value(self):
-            """Get last completed energy reading (float) in units of joule (J), without waiting
-            for a new pulse."""
+            """Get last completed energy reading (float) in units of joule (J), without
+            waiting for a new pulse.
+            Caution: with no completed measurement in the output buffer at all, 'FETCh?'
+            BLOCKS until one completes (or the VISA timeout expires); shortly after the
+            new-value flag sets it may transiently return the no-data sentinel
+            (~9.91e37) — use `fetch()` for a retrying, sentinel-aware read."""
             return float(self.outer_instance.visa_query('FETCh?'))
+
+        def fetch(self, retries=3, retry_delay=0.01):
+            """
+            Fetch the completed energy reading (float, J), retrying while the device
+            returns the no-data sentinel (see `NO_DATA_SENTINEL`): the new-value flag
+            can set ~ms before the value lands in the output buffer. Returns None if
+            only the sentinel was seen after all retries. Call after
+            `new_value_available` returned True; follow with `rearm()`.
+            """
+            for _ in range(retries + 1):
+                value = self.last_value
+                if value < self.NO_DATA_SENTINEL:
+                    return value
+                time.sleep(retry_delay)
+            return None
 
         def arm(self):
             """
-            Configure device for energy measurement and start a continuously running
-            measurement. The device then updates the measurement value with each incoming pulse
-            exceeding the trigger level, setting the new-value flag of the operation status
-            register (see `new_value_available`). Read the value with `last_value`.
-            Unlike `value`, this never blocks, allowing a non-blocking readout loop that polls
-            `new_value_available` and fetches `last_value` when it returns True.
+            Configure the device for per-pulse energy readout and start the first
+            measurement. Measurements are SINGLE-SHOT: 'INITiate' arms exactly one
+            measurement, which completes with the next pulse exceeding the trigger
+            level and sets the new-value flag of the operation status register (see
+            `new_value_available`). The readout cycle is therefore:
+            poll `new_value_available` -> `fetch()` -> `rearm()` -> repeat.
+            Unlike `value`, this cycle never blocks.
+
+            The positive transition filter of the operation status register is CYCLED
+            (0, then 512) rather than just written: the filter value persists across
+            sessions, and the new-value event only reliably latches again after the
+            filter is written with an actual change (bench-verified on a PM100D -
+            rewriting the same value left the event register permanently silent).
             """
             outer_instance = self.outer_instance
             outer_instance.visa_write('CONFigure:ENERgy')
+            outer_instance.visa_write('STATus:OPERation:PTRansition 0')
+            outer_instance.visa_write('STATus:OPERation:PTRansition 512')
+            outer_instance.visa_write('STATus:OPERation:NTRansition 0')
             outer_instance.visa_write('ABORt')
             # Reading the operation status event register clears it
+            outer_instance.visa_query('STATus:OPERation?')
+            outer_instance.visa_write('INITiate')
+
+        def rearm(self):
+            """
+            Start the next single-shot measurement: abort the current one, clear the
+            operation status event register, and initiate. Call after every `fetch()`
+            (see `arm()` for the full readout cycle).
+            """
+            outer_instance = self.outer_instance
+            outer_instance.visa_write('ABORt')
             outer_instance.visa_query('STATus:OPERation?')
             outer_instance.visa_write('INITiate')
 
