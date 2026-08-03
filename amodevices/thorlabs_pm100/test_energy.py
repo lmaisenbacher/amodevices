@@ -19,6 +19,7 @@ blocked), this is reported repeatedly, and the loop keeps polling without ever b
 import logging
 import time
 from pathlib import Path
+import numpy as np
 
 from amodevices import ThorlabsPM100
 from amodevices.dev_exceptions import DeviceError
@@ -44,10 +45,10 @@ device = {
 
 # Energy range (float, J), or None to keep the current device setting.
 # The device rounds the value to the next suitable range.
-energy_range = 2e-4
+energy_range = 2e-3
 # Trigger level (float) in percent (%) of the selected energy range (1% to 70%),
 # or None to keep the current device setting
-trigger_level = None
+trigger_level = 1.0
 # Polling interval (s)
 poll_interval = 0.02
 # Time without pulse after which 'No pulse detected' is reported (s).
@@ -90,6 +91,7 @@ try:
     beam_present = True
     # Detection times of pulses (s), used to calculate the mean time between pulses
     pulse_times = []
+    pulse_energies = []
     while time.monotonic() - time_start < duration:
         # Check (and clear) the new-value flag of the operation status register
         if device_instance.new_value_available:
@@ -104,6 +106,7 @@ try:
                 num_pulses += 1
                 time_last_pulse = time.monotonic()
                 pulse_times.append(time_last_pulse)
+                pulse_energies.append(pulse_energy)
                 if not beam_present:
                     logger.info('Pulses detected again')
                     beam_present = True
@@ -115,6 +118,9 @@ try:
             beam_present = False
             time_last_pulse = time.monotonic()
         time.sleep(poll_interval)
+    logger.info(
+        'Energy range: %.3e J, trigger level: %.1f%% of range',
+        device_instance.energy.range, device_instance.energy.trigger_level)
     logger.info('Detected %d pulses in %.1f s', num_pulses, duration)
     if num_pulses >= 2:
         # Mean of the successive pulse intervals, which equals the total span divided by the
@@ -123,5 +129,11 @@ try:
         logger.info(
             'Mean time between pulses: %.1f ms (%.2f Hz)',
             mean_pulse_interval*1e3, 1/mean_pulse_interval)
+        logger.info(
+            'Mean (SD/max/min) pulse energy: '
+            +f'{np.mean(pulse_energies):.2e}'
+            +f'({np.std(pulse_energies):.2e}'
+            +f'/{np.max(pulse_energies):.2e}/{np.min(pulse_energies):.2e})'
+            )
 except DeviceError as e:
     print(e.value)
