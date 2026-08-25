@@ -49,6 +49,9 @@ class Device:
     def serial_connect(self):
         """Open serial connection to device."""
         device = self.device
+        # Release any previously held port first, so repeated calls
+        # (reconnection attempts) cannot fail on a still-open handle
+        self.serial_close()
         try:
             ser = serial.Serial(
                 device['Address'], timeout=device.get('Timeout'),
@@ -76,14 +79,30 @@ class Device:
         using encoding `encoding` (str; default is 'ASCII') and end-of-line character
         `eol` (str; default is '\n').
         """
+        if self.ser is None:
+            raise DeviceError(f'{self.device["Device"]}: Not connected')
         query = command+eol
-        with write_lock:
-            n_write_bytes = self.ser.write((query).encode(encoding))
+        try:
+            with write_lock:
+                n_write_bytes = self.ser.write((query).encode(encoding))
+        except serial.SerialException as e:
+            self.device_connected = False
+            raise DeviceError(
+                f'{self.device["Device"]}: Serial write failed: {e}')
         if n_write_bytes != len(query):
             raise DeviceError(f'{self.device["Device"]}: Query failed')
 
     def init_visa(self):
         """Initialize VISA connection."""
+        # Release any previously opened resource first, so repeated
+        # calls (reconnection attempts) do not leak sessions
+        if self.visa_resource is not None:
+            try:
+                self.visa_resource.close()
+            except Exception:
+                pass
+            self.visa_resource = None
+        self.device_connected = False
         # Initialize PyVISA to talk to VISA devices
         visa_rm = pyvisa.ResourceManager()
         visa_rsrc_list = visa_rm.list_resources()
@@ -127,6 +146,7 @@ class Device:
                     self.device['CmdOnInit'], self.device['Device'])
                 self.visa_write(self.device['CmdOnInit'])
             self.device_present = True
+            self.device_connected = True
         else:
             msg = (
                 f'VISA error: No device with VISA resource name \'{self.device["Address"]}\''
@@ -136,6 +156,8 @@ class Device:
 
     def visa_write(self, cmd):
         """Write VISA command `cmd` (str)."""
+        if self.visa_resource is None:
+            raise DeviceError(f'{self.device["Device"]}: Not connected')
         try:
             self.visa_resource.write(cmd)
             logger.debug('VISA write to device \'%s\': \'%s\'', self.device['Device'], cmd)
@@ -146,11 +168,20 @@ class Device:
                     self.device['Device'], self.device['Address'], e.description))
             logger.error(msg)
             raise DeviceError(msg)
+        except pyvisa.errors.InvalidSession:
+            # Raised on any use after the resource was closed; not a
+            # `VisaIOError`
+            self.device_connected = False
+            msg = f'VISA session to device \'{self.device["Device"]}\' is closed'
+            logger.error(msg)
+            raise DeviceError(msg)
 
     def visa_query(self, query, return_ascii=False):
         """
         Send VISA query `query` (str) and return response.
         """
+        if self.visa_resource is None:
+            raise DeviceError(f'{self.device["Device"]}: Not connected')
         try:
             if return_ascii:
                 response = self.visa_resource.query_ascii_values(query, container=np.array)
@@ -164,6 +195,13 @@ class Device:
                 'Error in VISA communication with device \'{}\' (VISA resource name \'{}\'): {}'
                 .format(
                     self.device['Device'], self.device['Address'], e.description))
+            logger.error(msg)
+            raise DeviceError(msg)
+        except pyvisa.errors.InvalidSession:
+            # Raised on any use after the resource was closed; not a
+            # `VisaIOError`
+            self.device_connected = False
+            msg = f'VISA session to device \'{self.device["Device"]}\' is closed'
             logger.error(msg)
             raise DeviceError(msg)
 
