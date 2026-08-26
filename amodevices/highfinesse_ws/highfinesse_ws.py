@@ -3,10 +3,11 @@
 Device driver for HighFinesse WS series wavemeters, interfaced through the
 Windows DLL API (`wlmData.dll`) of the HighFinesse wavemeter software, which
 must be running on the same PC.
-Tested with models WS Ultimate 2 MC (at MPQ) and WS/7 (at UC Berkeley).
+Tested with model WS/7.
 All calls address wavemeter channel 1 only.
 
-Originally written by Fabian Schmid for the He+ project at MPQ.
+Originally written by Fabian Schmid for the He+ project at MPQ, where it was
+used with a WS Ultimate 2 MC.
 Adapted by Lothar Maisenbacher/UC Berkeley.
 """
 
@@ -75,8 +76,8 @@ class HighFinesseWS(dev_generic.Device):
             a pulsed laser exactly once by polling faster than the pulse
             repetition rate.
         'PulseMode' (optional): expected measurement mode of the wavemeter
-            software (0 = CW, nonzero = a pulsed mode, numbering per manual
-            section 4.1.2.4). Checked, never set: the driver must not override
+            software (0 = CW, nonzero = a pulsed mode, numbering per WS/7
+            manual section 4.1.2.4). Checked, never set: the driver must not override
             a mode an operator chose in the wavemeter GUI, only refuse to
             operate in the wrong one (see `check_pulse_mode`).
         """
@@ -250,7 +251,8 @@ class HighFinesseWS(dev_generic.Device):
         """Return the current laser frequency.
 
         :returns: the current frequency in THz, or None if the device is not present,
-                  or an integer error code (<= 0) for API errors (see manual)
+                  or an integer error code (<= 0) for API errors (see WS/7 manual
+                  section 4.1.2.2)
         """
         if not self.device_present:
             logger.warning("get_frequency() called for non-present HighFinesse wavemeter.")
@@ -262,7 +264,7 @@ class HighFinesseWS(dev_generic.Device):
 
         :returns: the mode as reported by `GetPulseMode`: 0 for continuous
                   wave (CW), nonzero for one of the pulsed modes (numbering
-                  depends on the device version, see manual section
+                  depends on the device version, see WS/7 manual section
                   4.1.2.4), or None if the device is not present
         """
         if not self.device_present:

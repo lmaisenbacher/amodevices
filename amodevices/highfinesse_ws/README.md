@@ -1,6 +1,6 @@
 # HighFinesse WS series wavemeter
 
-Device driver for HighFinesse WS series wavemeters. Tested with models WS Ultimate 2 MC and WS/7.
+Device driver for HighFinesse WS series wavemeters. Tested with model WS/7.
 
 ## Communication
 
@@ -25,7 +25,7 @@ device = {
     'ReadOnce': False,
     # Expected measurement mode of the wavemeter software (int, optional):
     # 0 = continuous wave (CW), nonzero = a pulsed mode (numbering depends on
-    # the device version, see manual section 4.1.2.4). The mode is checked
+    # the device version, see WS/7 manual section 4.1.2.4). The mode is checked
     # (`check_pulse_mode` raises `DeviceError` on mismatch), never set: the
     # driver must not override a mode an operator chose in the wavemeter GUI.
     'PulseMode': 0,
@@ -36,7 +36,7 @@ device = {
 
 Construction loads the DLL, registers with the wavemeter software (`Instantiate`), and runs an initial `check_pulse_mode`. The driver then exposes:
 
-- `get_frequency()`: current frequency of channel 1 in THz; DLL error codes (<= 0, e.g. ErrNoSignal) pass through unmapped (see manual section 4.1.2.2).
+- `get_frequency()`: current frequency of channel 1 in THz; DLL error codes (<= 0, e.g. ErrNoSignal) pass through unmapped (see WS/7 manual section 4.1.2.2).
 - `get_pulse_mode()` / `check_pulse_mode()`: measurement mode readout and configured-mode check.
 - `get_exposures()` / `set_exposure_1()` / `set_exposure_2()` / `get_automatic_exposure()` / `set_automatic_exposure()`: exposure control of the two sensors.
 - `get_levels()`: maximum amplitudes of the two sensors' interference patterns.
