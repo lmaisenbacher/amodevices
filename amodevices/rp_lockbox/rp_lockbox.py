@@ -1,5 +1,5 @@
 # Copyright (c) 2018, Fabian Schmid, Edward Wang
-# Copyright (c) 2023, Lothar Maisenbacher
+# Copyright (c) 2023-2026, Lothar Maisenbacher
 #
 # All rights reserved.
 #
@@ -47,6 +47,9 @@ class RPLockbox(dev_generic.Device):
 
     def connect(self):
         """Open a new TCP/IP socket and connect to the configured hostname and port."""
+        # Release any previously held socket first, so repeated calls
+        # (reconnection attempts) cannot leak connections
+        self.close()
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if (timeout := self.device.get('Timeout')) is not None:
             self._socket.settimeout(timeout)
@@ -54,8 +57,11 @@ class RPLockbox(dev_generic.Device):
         try:
             self._socket.connect((
                 self.device['Address'], self.device['SCPIConnectionParams']['Port']))
-        except socket.timeout as err:
-            raise DeviceError(f'Failed to connect to socket. Error: {err}')
+        except OSError as err:
+            # OSError covers timeout, refused connection, and DNS
+            # failure alike — anything else would crash the caller
+            raise DeviceError(
+                f'{self.device["Device"]}: Failed to connect to socket. Error: {err}')
 
     def __del__(self):
         if self._socket is not None:
@@ -73,10 +79,22 @@ class RPLockbox(dev_generic.Device):
         """
         msg = ''
         while 1:
-            chunk = self._socket.recv(chunksize + len(self.delimiter)).decode('utf-8')
+            try:
+                chunk = self._socket.recv(
+                    chunksize + len(self.delimiter)).decode('utf-8')
+            except OSError as err:
+                raise DeviceError(
+                    f'{self.device["Device"]}: Failed to receive from '
+                    f'socket. Error: {err}')
+            if not chunk:
+                # recv returning b'' means the peer closed the
+                # connection — without this the loop would spin forever
+                raise DeviceError(
+                    f'{self.device["Device"]}: Connection closed by '
+                    f'device')
             # Receive chunk size of 2^n preferably
             msg += chunk
-            if chunk and chunk[-2:] == self.delimiter:
+            if chunk[-2:] == self.delimiter:
                 break
         logger.debug("RX: %s", msg[:-2])
         return msg[:-2]
