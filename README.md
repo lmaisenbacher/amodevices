@@ -24,6 +24,7 @@ Additionally, to run the high voltage controller server you also need to downloa
 |-------|--------|---------------|
 | [`CAENDT1470ET`](amodevices/caen_dt1470et/README.md) | CAEN R/DT14xxET, R/DT1570ET HV power supply | TCP/IP, USB serial |
 | `FLIRBoson` | FLIR Boson thermal camera | FLIR Boson SDK |
+| [`HighFinesseWS`](amodevices/highfinesse_ws/README.md) | HighFinesse WS series wavemeter | wlmData.dll (Windows DLL API) |
 | `Keysight53220A` | Keysight 53220A universal counter | VISA |
 | [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |

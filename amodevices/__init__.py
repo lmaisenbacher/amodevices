@@ -15,3 +15,4 @@ from .rp_lockbox.rp_lockbox import RPLockbox
 from .ni_daq.ni_daq import NIDAQ
 from .lioptec_liopstar.lioptec_liopstar import LioptecLiopStar
 from .caen_dt1470et.caen_dt1470et import CAENDT1470ET
+from .highfinesse_ws.highfinesse_ws import HighFinesseWS
