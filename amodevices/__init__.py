@@ -16,3 +16,6 @@ from .ni_daq.ni_daq import NIDAQ
 from .lioptec_liopstar.lioptec_liopstar import LioptecLiopStar
 from .caen_dt1470et.caen_dt1470et import CAENDT1470ET
 from .highfinesse_ws.highfinesse_ws import HighFinesseWS
+from .kjlc_354.kjlc_354 import KJLC354
+from .kjlc_acg.kjlc_acg import KJLCACG
+from .kjlc_xcg.kjlc_xcg import KJLCXCG

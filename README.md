@@ -16,7 +16,7 @@ pip install git+ssh://git@github.com:lmaisenbacher/amodevices.git
 
 Alternatively, the package can be install as a local copy, useful when developing. For this, clone this repository and run `pip install -e .` in the root directory (containing `setup.py`). The `-e` flag ensures that the files in the local copy of the repository are used when importing the package elsewhere and changes to these files will be directly visible, as opposed to a normal installation, where the package files are imported from a dedicated directory holding all installed packages (see [`pip install` documentation](https://pip.pypa.io/en/stable/cli/pip_install/)).
 
-Additionally, to run the high voltage controller server you also need to download National Instruments (NI) NI-DAQmx drivers. Further instructions can be found [here](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html).
+Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install National Instruments (NI) NI-DAQmx drivers. Further instructions can be found [here](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html).
 
 ## Supported devices
 
@@ -26,6 +26,9 @@ Additionally, to run the high voltage controller server you also need to downloa
 | `FLIRBoson` | FLIR Boson thermal camera | FLIR Boson SDK |
 | [`HighFinesseWS`](amodevices/highfinesse_ws/README.md) | HighFinesse WS series wavemeter | wlmData.dll (Windows DLL API) |
 | `Keysight53220A` | Keysight 53220A universal counter | VISA |
+| `KJLC354` | Kurt J. Lesker KJLC 354/352 and InstruTech IGM401/402 ion pressure gauges, KJLC 300 series Pirani pressure gauge | Serial (RS-485) |
+| `KJLCACG` | Kurt J. Lesker KJLC ACG series capacitance manometer | Serial (RS-232) |
+| `KJLCXCG` | Kurt J. Lesker KJLC Carbon XCG series pressure gauge (custom Arduino readout) | USB serial |
 | [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |
 | `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator | VISA |
