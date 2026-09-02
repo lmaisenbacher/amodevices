@@ -37,8 +37,17 @@ dev.close()
 
 ### Detector readings
 
-Readings are cached; a new request is sent only when the cache has expired
-(interval set by 'CacheInterval', default 0.1 s; set to 0 to disable caching).
+`read_readings()` reads all detector signals in ONE request, bypassing the
+cache, and returns them as a plain dict (keys `xdiff`, `ydiff`, `sum`,
+`xpos`, `ypos`, `xpos_pdp90a`, `ypos_pdp90a`, and `time` — the epoch-second
+read time). The PDP90A positions are NaN when the summed signal is zero
+(beam blocked or sensor dark) — they never raise. This is the method for a
+polling loop: N property reads cost up to N wire round trips, one
+`read_readings()` always costs exactly one.
+
+The properties below are cached; a new request is sent only when the cache
+has expired (interval set by 'CacheInterval', default 0.1 s; set to 0 to
+disable caching).
 
 | Property | Description |
 |----------|-------------|

@@ -221,26 +221,51 @@ class ThorlabsKPA101(dev_generic.Device):
             num_channels=num_channels,
         )
 
+    def read_readings(self):
+        """Read all detector signals in one request, bypassing the cache.
+
+        Returns a dict with keys 'xdiff', 'ydiff', 'sum' (V), 'xpos',
+        'ypos' (mm; only meaningful for some sensor types),
+        'xpos_pdp90a', 'ypos_pdp90a' (mm; Thorlabs PDP90A only — NaN
+        when the summed signal is zero, i.e. beam blocked or sensor
+        dark), and 'time' (epoch s, the read time). Also refreshes the
+        cache the properties serve from.
+        """
+        self.check_connection()
+        data = self._quad_req(0x03)
+        # data[0:2] = SubMsgID (word); data[2:12] = XDiff, YDiff, Sum,
+        # XPos, YPos (hhHhh = signed, signed, unsigned, signed, signed)
+        xdiff_r, ydiff_r, sum_r, xpos_r, ypos_r = struct.unpack(
+            '<hhHhh', data[2:12])
+        xdiff = xdiff_r * _SCALE
+        ydiff = ydiff_r * _SCALE
+        sum_ = sum_r * _SCALE / 2  # unsigned word, half the signed range
+        self._xdiff = xdiff
+        self._ydiff = ydiff
+        self._sum = sum_
+        self._xpos = xpos_r * _SCALE
+        self._ypos = ypos_r * _SCALE
+        self._last_reading_time = time.time()
+        return {
+            'xdiff': xdiff,
+            'ydiff': ydiff,
+            'sum': sum_,
+            'xpos': self._xpos,
+            'ypos': self._ypos,
+            'xpos_pdp90a': 5 * xdiff / sum_ if sum_ != 0 else float('nan'),
+            'ypos_pdp90a': 5 * ydiff / sum_ if sum_ != 0 else float('nan'),
+            'time': self._last_reading_time,
+        }
+
     def get_readings_cached(self):
         """Read and cache detector signals from the device.
 
         Sends a new request only if the cache has expired (interval set by
-        `_cache_interval`).
+        `_cache_interval`; set 'CacheInterval' to 0 to disable caching).
         """
         if (self._last_reading_time is None
                 or time.time() - self._last_reading_time > self._cache_interval):
-            self.check_connection()
-            data = self._quad_req(0x03)
-            # data[0:2] = SubMsgID (word); data[2:12] = XDiff, YDiff, Sum,
-            # XPos, YPos (hhHhh = signed, signed, unsigned, signed, signed)
-            xdiff_r, ydiff_r, sum_r, xpos_r, ypos_r = struct.unpack(
-                '<hhHhh', data[2:12])
-            self._xdiff = xdiff_r * _SCALE
-            self._ydiff = ydiff_r * _SCALE
-            self._sum   = sum_r * _SCALE / 2  # unsigned word, half the signed range
-            self._xpos  = xpos_r * _SCALE
-            self._ypos  = ypos_r * _SCALE
-            self._last_reading_time = time.time()
+            self.read_readings()
 
     @property
     def xdiff(self):
@@ -277,9 +302,12 @@ class ThorlabsKPA101(dev_generic.Device):
         """
         Only valid for Thorlabs PDP90A:
         x position in millimeter, calculated from x-axis alignment difference
-        signal and summed signal.
+        signal and summed signal. NaN when the summed signal is zero (beam
+        blocked or sensor dark).
         """
         self.get_readings_cached()
+        if self._sum == 0:
+            return float('nan')
         return 5 * self._xdiff / self._sum
 
     @property
@@ -287,9 +315,12 @@ class ThorlabsKPA101(dev_generic.Device):
         """
         Only valid for Thorlabs PDP90A:
         y position in millimeter, calculated from y-axis alignment difference
-        signal and summed signal.
+        signal and summed signal. NaN when the summed signal is zero (beam
+        blocked or sensor dark).
         """
         self.get_readings_cached()
+        if self._sum == 0:
+            return float('nan')
         return 5 * self._ydiff / self._sum
 
     @property
