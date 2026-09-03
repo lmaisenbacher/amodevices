@@ -9,17 +9,41 @@ The KPA101 communicates over a USB virtual serial port (FTDI FT232R chip) using
 the Thorlabs APT binary protocol at 115200 baud with RTS/CTS flow control.
 The driver uses **pyserial** directly — no pylablib or Kinesis DLL required.
 
-The COM port is discovered automatically from the device serial number.
-The Windows FTDI driver appends a channel-letter suffix to the serial number
-stored in the chip EEPROM; for the single-port KPA101 this is always `'A'`
-(e.g., serial number `69252254` → USB serial string `'69252254A'`).
+The serial port is chosen one of two ways:
+
+- **Discovery by serial number** (`'SerialNumber'` only): the port whose USB
+  serial string matches is opened, on Windows and Linux alike. The string the
+  OS reports differs by platform and both forms are accepted: the Windows
+  FTDI driver appends a channel-letter suffix to the serial number stored in
+  the chip EEPROM — always `'A'` for the single-port KPA101 (serial number
+  `69252254` → `'69252254A'`) — while Linux's `ftdi_sio` reports the bare
+  EEPROM string (`'69252254'`).
+- **Direct port** (`'Address'`, e.g. `'COM20'` or `'/dev/ttyUSB0'`): the named
+  port is opened and discovery is skipped. On Linux prefer the
+  `/dev/serial/by-id/usb-...-if00-port0` symlink — it encodes the USB serial
+  and is stable across enumeration order, unlike `/dev/ttyUSBn`. When
+  `'SerialNumber'` is given as well, the driver reads the device's serial
+  number after opening (APT `HW_REQ_INFO`) and refuses a mismatch, so a
+  renumbered port that now belongs to another Thorlabs cube fails loudly
+  instead of being read.
+
+### Linux setup
+
+- The FTDI latency timer defaults to 16 ms and caps the read rate at ~50 Hz;
+  1 ms gives ~300 Hz reads (measured on Windows at the same setting). Set it
+  with a udev rule, e.g. `/etc/udev/rules.d/99-thorlabs-apt.rules`:
+  `ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTRS{idProduct}=="faf0", ATTR{latency_timer}="1"`
+  (or transiently `echo 1 > /sys/bus/usb-serial/devices/ttyUSBx/latency_timer`).
+- The service user needs access to `/dev/ttyUSB*` (typically the `dialout`
+  group).
 
 ## Device configuration dict
 
 ```python
 device = {
     'Device': 'Thorlabs KPA101',
-    'SerialNumber': 69252254,   # Thorlabs 8-digit serial number (int)
+    'SerialNumber': 69252254,   # Thorlabs 8-digit serial number (int); discovers the port, or verifies the device when 'Address' is given too
+    'Address': 'COM20',         # optional, serial port to open directly (skips discovery); at least one of 'SerialNumber'/'Address' is required
     'Timeout': 5.,              # optional, serial read timeout in seconds (default 5)
     'CacheInterval': 0.1,       # optional, minimum interval between device reads in seconds (default 0.1); set to 0 to disable caching
 }

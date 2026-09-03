@@ -51,8 +51,17 @@ class ThorlabsKPA101(dev_generic.Device):
         """Initialize class for device with settings `device` (dict)."""
         super().__init__(device)
 
-        # Serial number to open
-        self.serial_number = device['SerialNumber']
+        # Serial port to open directly (optional; e.g. 'COM20' or
+        # '/dev/serial/by-id/...'). When absent, the port is discovered from
+        # the device serial number
+        self.address = device.get('Address')
+        # Thorlabs 8-digit device serial number (optional when 'Address' is
+        # given; then used to verify the device found on that port)
+        self.serial_number = device.get('SerialNumber')
+        if self.address is None and self.serial_number is None:
+            raise DeviceError(
+                'Thorlabs KPA101: Device config needs \'Address\' (serial '
+                'port) and/or \'SerialNumber\' (USB discovery)')
         # Init device open status
         self.device_connected = False
         # pyserial Serial instance
@@ -72,26 +81,55 @@ class ThorlabsKPA101(dev_generic.Device):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _find_port(self):
-        """Return the COM port device path matching `self.serial_number`.
+    @property
+    def _label(self):
+        """Device identity for log and error messages."""
+        if self.serial_number is not None:
+            return f'device with serial number {self.serial_number}'
+        return f'device on {self.address}'
 
-        The Windows FTDI driver appends a channel-letter suffix to the base
-        serial number stored in the chip EEPROM ('A' for the first/only port).
-        For a single-port device like the KPA101, the USB serial number string
-        reported by the OS is therefore ``str(serial_number) + 'A'``.
+    def _find_port(self):
+        """Return the serial port device path matching `self.serial_number`.
+
+        The USB serial number string the OS reports for the cube differs by
+        platform: the Windows FTDI driver appends a channel-letter suffix to
+        the base serial number stored in the chip EEPROM ('A' for the
+        first/only port), so Windows shows ``str(serial_number) + 'A'``, while
+        Linux's ftdi_sio reports the bare EEPROM string. Both are accepted.
 
         Raises `DeviceError` if no matching port is found.
         """
-        target = str(self.serial_number) + 'A'
+        base = str(self.serial_number)
+        targets = (base + 'A', base)
         ports = list_ports.comports()
         for p in ports:
-            if p.serial_number == target:
-                return p.device, target
+            if p.serial_number in targets:
+                return p.device, p.serial_number
         raise DeviceError(
-            f'Thorlabs KPA101: No COM port found for serial number '
-            f'{self.serial_number} (looked for USB serial \'{target}\'; '
+            f'Thorlabs KPA101: No serial port found for serial number '
+            f'{self.serial_number} (looked for USB serial {targets}; '
             f'available: '
             f'{[(p.device, p.serial_number) for p in ports]})')
+
+    def _verify_serial_number(self):
+        """Compare the serial number the device reports with the configured one.
+
+        Used on the direct-port path ('Address' given). Closes the port and
+        raises `DeviceError` when the device does not answer or reports a
+        different serial number.
+        """
+        try:
+            reported = self.get_device_info().serial_number
+        except DeviceError:
+            self.close()
+            raise
+        if reported != int(self.serial_number):
+            self.close()
+            msg = (
+                f'Thorlabs KPA101: Device on {self.address} reports serial '
+                f'number {reported}, configured {self.serial_number}')
+            logger.error(msg)
+            raise DeviceError(msg)
 
     def _short_msg(self, msg_id, param1=0, param2=0):
         """Build and return a 6-byte APT short (no-data) message."""
@@ -154,23 +192,29 @@ class ThorlabsKPA101(dev_generic.Device):
     def check_connection(self):
         """Check whether connection to device is open."""
         if not self.device_connected:
-            msg = (
-                f'Thorlabs KPA101: Connection to device with serial number '
-                f'{self.serial_number} not open')
+            msg = f'Thorlabs KPA101: Connection to {self._label} not open'
             logger.error(msg)
             raise DeviceError(msg)
 
     def connect(self):
-        """Open connection to device."""
-        port, usb_serial = self._find_port()
+        """Open connection to device.
+
+        Opens the configured 'Address' directly when given, else the port
+        discovered from 'SerialNumber' (see :meth:`_find_port`). With both
+        keys present, the serial number the device reports is verified
+        against the configured one, so a renumbered port that now belongs
+        to another APT cube fails loudly instead of being read.
+        """
+        if self.address is not None:
+            port, usb_serial = self.address, None
+        else:
+            port, usb_serial = self._find_port()
         timeout = self.device.get('Timeout', 5.)
         try:
             self._ser = serial.Serial(
                 port, baudrate=115200, rtscts=True, timeout=timeout)
         except serial.SerialException as e:
-            msg = (
-                f'Thorlabs KPA101: Could not open {port} for device with serial number '
-                f'{self.serial_number}: {e}')
+            msg = f'Thorlabs KPA101: Could not open {port} for {self._label}: {e}'
             logger.error(msg)
             raise DeviceError(msg)
         # Init sequence per Thorlabs APT protocol manual §2.1
@@ -179,10 +223,13 @@ class ThorlabsKPA101(dev_generic.Device):
         self._ser.reset_output_buffer()
         time.sleep(0.05)
         self._ser.setRTS(True)
-        logger.info(
-            'Thorlabs KPA101: Connected to device with serial number %d (USB serial %s) on %s',
-            self.serial_number, usb_serial, port)
         self.device_connected = True
+        if usb_serial is None and self.serial_number is not None:
+            self._verify_serial_number()
+        logger.info(
+            'Thorlabs KPA101: Connected to %s on %s%s',
+            self._label, port,
+            f' (USB serial {usb_serial})' if usb_serial is not None else '')
         self.get_readings_cached()
 
     def close(self):
