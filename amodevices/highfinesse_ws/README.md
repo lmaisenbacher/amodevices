@@ -36,7 +36,9 @@ device = {
 
 Construction loads the DLL, registers with the wavemeter software (`Instantiate`), and runs an initial `check_pulse_mode`. The driver then exposes:
 
-- `get_frequency()`: current frequency of channel 1 in THz; DLL error codes (<= 0, e.g. ErrNoSignal) pass through unmapped (see WS/7 manual section 4.1.2.2).
+- `get_frequency()`: current frequency of channel 1 in THz; DLL return codes (<= 0) pass through unmapped. In 'ReadOnce' mode 0 (ErrNoValue) means "nothing new since the last read"; negative values are errors, e.g. -4 ErrBigSignal (overexposed), -1 ErrNoSignal.
+- `GET_ERRORS`: the return codes of `GetFrequency`/`GetWavelength` mapped to their header identifiers (from `Data.h` of the wavemeter software 7.834.6533.007; the WS/7 manual section 4.1.2.2 misnumbers -5 to -8). `status_name(code)` looks one up ('Err<code>' when unknown).
+- `STATUS_TEXT` / `status_text(code)`: the same codes as plain-word status strings for logging and display, following the fleet-wide vocabulary convention in `amodevices.status` (snake_case, `[a-z0-9_]`, at most 32 characters; `STATUS_OK` = 'ok' for a valid result, `STATUS_UNKNOWN` = 'unknown_error' for an unmapped code — the raw code belongs in a log line, never in the data). Examples: -4 → 'overexposed', -3 → 'underexposed', -1 → 'no_signal', -8 → 'no_pulse'.
 - `get_pulse_mode()` / `check_pulse_mode()`: measurement mode readout and configured-mode check.
 - `get_exposures()` / `set_exposure_1()` / `set_exposure_2()` / `get_automatic_exposure()` / `set_automatic_exposure()`: exposure control of the two sensors.
 - `get_levels()`: maximum amplitudes of the two sensors' interference patterns.

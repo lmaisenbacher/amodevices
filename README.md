@@ -42,3 +42,7 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | [`ThorlabsKPA101`](amodevices/thorlabs_kpa101/README.md) | Thorlabs KPA101 beam position aligner | USB serial (pyserial, APT protocol) |
 | `ThorlabsMDT693B` | Thorlabs MDT693B 3-axis piezo controller | USB serial |
 | `ThorlabsPM100` | Thorlabs PM100 power meter | VISA |
+
+## Reading status vocabulary
+
+A driver that can tell a valid reading from an invalid one reports a plain-word status string beside each reading, written to the database as a companion field and shown to people verbatim. The convention is defined once in `amodevices.status` (transport-free, importable without any device library): snake_case, `[a-z0-9_]`, at most 32 characters; `STATUS_OK` = `ok` for a valid reading; otherwise a short plain-English reason, the same word across devices where the meaning matches (`overexposed`, `no_signal`, ...); `STATUS_UNKNOWN` = `unknown_error` for a device code without a mapping (the raw code belongs in a log line). Each driver keeps its own code → word table next to its codes and maps through `status_for(code, table)`; `check_status_table(table)` validates a table in the driver's tests. First user: [`HighFinesseWS`](amodevices/highfinesse_ws/README.md) (`STATUS_TEXT`, `status_text(code)`).

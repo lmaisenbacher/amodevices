@@ -16,6 +16,7 @@ import ctypes
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
+from ..status import STATUS_OK, STATUS_UNKNOWN, status_for
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,73 @@ SET_ERRORS = {
     -20: "ResERR_NoLegitimation"
 }
 
+# Return values of GetFrequency/GetWavelength (and GetWLMVersion,
+# GetOptionInfo): > 0 is a result, <= 0 one of these codes. From
+# `Data.h` of the wavemeter software "Setup 7 834 USB [7.834.6533.007]"
+# (WS/7 manual section 4.1.2.2 misnumbers -5 to -8). 0 = ErrNoValue is
+# also the normal "nothing new since the last read" answer in
+# 'ReadOnce' mode.
+GET_ERRORS = {
+    0: "ErrNoValue",
+    -1: "ErrNoSignal",
+    -2: "ErrBadSignal",
+    -3: "ErrLowSignal",
+    -4: "ErrBigSignal",
+    -5: "ErrWlmMissing",
+    -6: "ErrNotAvailable",
+    -7: "InfNothingChanged",
+    -8: "ErrNoPulse",
+    -10: "ErrChannelNotAvailable",
+    -13: "ErrDiv0",
+    -14: "ErrOutOfRange",
+    -15: "ErrUnitNotAvailable",
+    -26: "ErrTCPErr",
+    -28: "ErrParameterOutOfRange",
+    -29: "ErrStringTooLong",
+    -30: "ErrInterruptedByUser",
+    -31: "ErrInfoAlreadyFetched",
+}
+
+# Plain-word status texts for the codes above — the vocabulary written
+# to the database and shown to people (the identifiers in GET_ERRORS
+# are for logs and this file), following the fleet convention in
+# `amodevices.status`: 'ok' (STATUS_OK) marks a valid result, an
+# unmapped code becomes 'unknown_error' (STATUS_UNKNOWN) in the data
+# with the raw code going to the log only.
+STATUS_TEXT = {
+    0: "no_value",
+    -1: "no_signal",
+    -2: "bad_signal",
+    -3: "underexposed",
+    -4: "overexposed",
+    -5: "wavemeter_missing",
+    -6: "not_available",
+    -7: "nothing_changed",
+    -8: "no_pulse",
+    -10: "channel_not_available",
+    -13: "division_by_zero",
+    -14: "out_of_range",
+    -15: "unit_not_available",
+    -26: "tcp_error",
+    -28: "parameter_out_of_range",
+    -29: "string_too_long",
+    -30: "interrupted_by_user",
+    -31: "info_already_fetched",
+}
+
+
+def status_text(code):
+    """Status vocabulary word for a GetFrequency return `code` (<= 0);
+    'unknown_error' for a code not in `STATUS_TEXT`."""
+    return status_for(code, STATUS_TEXT)
+
+
+def status_name(code):
+    """Header identifier of a GetFrequency return `code` (<= 0), e.g.
+    'ErrBigSignal'; 'Err<code>' for a code not in `GET_ERRORS`."""
+    return GET_ERRORS.get(int(code), f"Err{int(code)}")
+
+
 class HighFinesseWS(dev_generic.Device):
     """
     Device driver for HighFinesse WS series wavemeters, interfaced through the
@@ -62,6 +130,15 @@ class HighFinesseWS(dev_generic.Device):
     """
 
     DEFAULT_LIBRARY_PATH = r'C:\Windows\System32\wlmData.dll'
+
+    # GetFrequency return codes and their status vocabulary — exposed on
+    # the class so consumers need only `from amodevices import HighFinesseWS`
+    GET_ERRORS = GET_ERRORS
+    STATUS_TEXT = STATUS_TEXT
+    STATUS_OK = STATUS_OK
+    STATUS_UNKNOWN = STATUS_UNKNOWN
+    status_text = staticmethod(status_text)
+    status_name = staticmethod(status_name)
 
     def __init__(self, device):
         """Initialize class for device with settings `device` (dict).
@@ -251,8 +328,10 @@ class HighFinesseWS(dev_generic.Device):
         """Return the current laser frequency.
 
         :returns: the current frequency in THz, or None if the device is not present,
-                  or an integer error code (<= 0) for API errors (see WS/7 manual
-                  section 4.1.2.2)
+                  or an error code (<= 0, passed through unmapped) — see
+                  `GET_ERRORS` for the identifiers and `status_text()` for the
+                  plain-word status vocabulary; 0 (ErrNoValue) is also the
+                  "nothing new since the last read" answer in 'ReadOnce' mode
         """
         if not self.device_present:
             logger.warning("get_frequency() called for non-present HighFinesse wavemeter.")
