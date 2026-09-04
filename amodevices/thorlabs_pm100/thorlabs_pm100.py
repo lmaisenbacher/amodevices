@@ -50,8 +50,10 @@ class ThorlabsPM100(dev_generic.Device):
         def idn(self):
             """Get sensor identification string (str) and parse its fields."""
             self._idn = self.outer_instance.visa_query('SYSTem:SENSor:IDN?')
+            # The PM101 quotes the string fields ('"S121C","230919232",...'),
+            # the PM100D does not; strip quotes and padding from every field
             self._name, self._sn, self._cal_msg, _type, _subtype, _flags = (
-                self._idn.split(','))
+                field.strip().strip('"') for field in self._idn.split(','))
             self._type = int(_type)
             self._subtype = int(_subtype)
             self._flags = int(_flags)
