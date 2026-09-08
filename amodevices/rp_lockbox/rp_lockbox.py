@@ -302,6 +302,25 @@ class RPLockbox(dev_generic.Device):
         response = self.txrx_txt('PID:IN{}:OUT{}:HOLD?'.format(num_in, num_out))
         return response == "ON"
 
+    def set_pid_enabled(self, num_in, num_out, state):
+        """Enable or disable the PID output ("PID + relock output enabled" in the web
+        interface): disabled, neither the controller nor its relock sweep drives the output.
+        Needs the rp-lockbox SCPI server newer than release 1.2.1.
+
+        :state: True to enable the PID output, False to disable it
+        """
+        self.tx_txt('PID:IN{}:OUT{}:ENAB {}'.format(num_in, num_out, int(state)))
+
+    def get_pid_enabled(self, num_in, num_out):
+        """Return whether the PID output is enabled (the setting; the external lock reset
+        may still gate the output). Needs the rp-lockbox SCPI server newer than release
+        1.2.1.
+
+        :returns: True if the PID output is enabled, False otherwise
+        """
+        response = self.txrx_txt('PID:IN{}:OUT{}:ENAB?'.format(num_in, num_out))
+        return response == "ON"
+
     def set_int_auto_state(self, num_in, num_out, state):
         """If enabled, the integrator register is reset when the PID output hits the configured
         limit
