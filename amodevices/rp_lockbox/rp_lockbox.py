@@ -413,14 +413,14 @@ class RPLockbox(dev_generic.Device):
 
     def get_lock_status(self, num_in, num_out):
         """Return the lock status from the lockbox's lock monitoring (needs the rp-lockbox
-        SCPI server with the LOCKed? query, newer than release 1.2.0): the PID counts as
+        SCPI server with the LOCKED? query, newer than release 1.2.0): the PID counts as
         locked while its relock input is inside the configured minimum/maximum window.
         This is the signal on the lock status DO pins; it is monitored whether or not the
         relock feature is enabled.
 
         :returns: True if the PID is locked, False otherwise
         """
-        response = self.txrx_txt('PID:IN{}:OUT{}:LOCK?'.format(num_in, num_out))
+        response = self.txrx_txt('PID:IN{}:OUT{}:LOCKED?'.format(num_in, num_out))
         return response == "ON"
 
     def set_output_minimum(self, num_out, minimum):
