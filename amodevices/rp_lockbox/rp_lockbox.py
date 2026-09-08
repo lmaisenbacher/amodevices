@@ -64,7 +64,8 @@ class RPLockbox(dev_generic.Device):
                 f'{self.device["Device"]}: Failed to connect to socket. Error: {err}')
 
     def __del__(self):
-        if self._socket is not None:
+        # A constructor that failed before connecting never set `_socket`
+        if getattr(self, '_socket', None) is not None:
             self._socket.close()
         self._socket = None
 
@@ -410,6 +411,18 @@ class RPLockbox(dev_generic.Device):
         response = self.txrx_txt('PID:IN{}:OUT{}:REL:INP?'.format(num_in, num_out))
         return int(response[-1]) # response format: AIN[0-3]
 
+    def get_lock_status(self, num_in, num_out):
+        """Return the lock status from the lockbox's lock monitoring (needs the rp-lockbox
+        SCPI server with the LOCKed? query, newer than release 1.2.0): the PID counts as
+        locked while its relock input is inside the configured minimum/maximum window.
+        This is the signal on the lock status DO pins; it is monitored whether or not the
+        relock feature is enabled.
+
+        :returns: True if the PID is locked, False otherwise
+        """
+        response = self.txrx_txt('PID:IN{}:OUT{}:LOCK?'.format(num_in, num_out))
+        return response == "ON"
+
     def set_output_minimum(self, num_out, minimum):
         """Set the minimum output voltage for the specified channel.
 
@@ -457,3 +470,8 @@ class RPLockbox(dev_generic.Device):
     def get_fast_analog_output(self, num_out):
         """Return the fast analog output voltage (in V)."""
         return float(self.txrx_txt(f'ANALOG:OUT{num_out:d}:VOLT?'))
+
+    def get_aux_analog_input(self, pin):
+        """Return the voltage (in V) on the auxiliary (slow, XADC) analog input `pin` (0-3),
+        one of the inputs the relock feature monitors."""
+        return float(self.txrx_txt(f'ANALOG:PIN? AIN{pin:d}'))
