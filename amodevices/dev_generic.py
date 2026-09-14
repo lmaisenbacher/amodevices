@@ -107,7 +107,7 @@ class Device:
         visa_rm = pyvisa.ResourceManager()
         visa_rsrc_list = visa_rm.list_resources()
 
-        # Check if device can be found, if yes open device connection
+        # Check if device can be found, then open device connection
         logger.info(
             'Connecting to device \'%s\' with VISA resource name \'%s\'',
             self.device['Device'], self.device['Address'])
@@ -116,43 +116,53 @@ class Device:
                 'A device with VISA resource name \'%s\' was found.'
                 +' Trying to open connection and read instrument IDN...',
                 self.device['Address'])
-            try:
-                self.visa_resource = visa_rm.open_resource(self.device['Address'])
-                visa_rcvd_idn = self.visa_resource.query('*IDN?').rstrip()
-            except:
-                msg = 'VISA error: Could not connect to device!'
-                logger.error(msg)
-                raise DeviceError(msg)
-            else:
-                logger.info(
-                    'Connected to device \'%s\' with VISA resource name \'%s\'',
-                    self.device['Device'], self.device['Address'])
-            if 'Timeout' in self.device:
-                self.visa_resource.timeout = self.device['Timeout']*1e3
-            if self.device.get('VISAIDN', None) is not None:
-                if visa_rcvd_idn == self.device['VISAIDN']:
-                    logger.info(
-                        'Received instrument IDN (\'%s\') matches saved IDN!', visa_rcvd_idn
-                        )
-                else:
-                    logger.warning(
-                        'VISA warning: Received instrument IDN (\'%s\')'
-                        +' DOES NOT match saved IDN!',
-                        visa_rcvd_idn)
-                    self.visa_warning = True
-            if self.device.get('CmdOnInit', None) is not None:
-                logger.info(
-                    'Sending initialization command \'%s\' to VISA device \'%s\'',
-                    self.device['CmdOnInit'], self.device['Device'])
-                self.visa_write(self.device['CmdOnInit'])
-            self.device_present = True
-            self.device_connected = True
         else:
+            # LAN INSTR resources ('TCPIP0::<host>::inst0::INSTR') are
+            # enumerated only when registered with the VISA library (e.g.
+            # in NI MAX), so an unlisted address may still be reachable
+            logger.warning(
+                'No device with VISA resource name \'%s\' is enumerated by the'
+                +' VISA library. Trying to open connection directly and read'
+                +' instrument IDN...',
+                self.device['Address'])
+        try:
+            self.visa_resource = visa_rm.open_resource(self.device['Address'])
+            visa_rcvd_idn = self.visa_resource.query('*IDN?').rstrip()
+        except Exception as e:
+            if self.visa_resource is not None:
+                try:
+                    self.visa_resource.close()
+                except Exception:
+                    pass
+                self.visa_resource = None
             msg = (
-                f'VISA error: No device with VISA resource name \'{self.device["Address"]}\''
-                +' found!')
+                f'VISA error: Could not connect to device \'{self.device["Device"]}\''
+                +f' with VISA resource name \'{self.device["Address"]}\': {e}')
             logger.error(msg)
-            raise DeviceError(msg)
+            raise DeviceError(msg) from e
+        logger.info(
+            'Connected to device \'%s\' with VISA resource name \'%s\'',
+            self.device['Device'], self.device['Address'])
+        if 'Timeout' in self.device:
+            self.visa_resource.timeout = self.device['Timeout']*1e3
+        if self.device.get('VISAIDN', None) is not None:
+            if visa_rcvd_idn == self.device['VISAIDN']:
+                logger.info(
+                    'Received instrument IDN (\'%s\') matches saved IDN!', visa_rcvd_idn
+                    )
+            else:
+                logger.warning(
+                    'VISA warning: Received instrument IDN (\'%s\')'
+                    +' DOES NOT match saved IDN!',
+                    visa_rcvd_idn)
+                self.visa_warning = True
+        if self.device.get('CmdOnInit', None) is not None:
+            logger.info(
+                'Sending initialization command \'%s\' to VISA device \'%s\'',
+                self.device['CmdOnInit'], self.device['Device'])
+            self.visa_write(self.device['CmdOnInit'])
+        self.device_present = True
+        self.device_connected = True
 
     def visa_write(self, cmd):
         """Write VISA command `cmd` (str)."""
@@ -189,6 +199,43 @@ class Device:
                 response = self.visa_resource.query(query).rstrip()
             logger.debug('VISA query to device \'%s\': \'%s\'', self.device['Device'], query)
             logger.debug('VISA device \'%s\' response: \'%s\'', self.device['Device'], response)
+            return response
+        except pyvisa.VisaIOError as e:
+            msg = (
+                'Error in VISA communication with device \'{}\' (VISA resource name \'{}\'): {}'
+                .format(
+                    self.device['Device'], self.device['Address'], e.description))
+            logger.error(msg)
+            raise DeviceError(msg)
+        except pyvisa.errors.InvalidSession:
+            # Raised on any use after the resource was closed; not a
+            # `VisaIOError`
+            self.device_connected = False
+            msg = f'VISA session to device \'{self.device["Device"]}\' is closed'
+            logger.error(msg)
+            raise DeviceError(msg)
+
+    def visa_query_binary(
+            self, query, datatype='h', is_big_endian=False, chunk_size=2**20):
+        """
+        Send VISA query `query` (str) whose response is an IEEE 488.2
+        definite-length binary block and return the values as a NumPy array.
+        `datatype` (str) is the struct format code of one value (default 'h',
+        signed 16-bit) and `is_big_endian` (bool) the byte order (default
+        little-endian). `chunk_size` (int, bytes) is the read chunk size;
+        the default of 1 MiB keeps long records from being read in the
+        library's small default chunks.
+        """
+        if self.visa_resource is None:
+            raise DeviceError(f'{self.device["Device"]}: Not connected')
+        try:
+            response = self.visa_resource.query_binary_values(
+                query, datatype=datatype, is_big_endian=is_big_endian,
+                container=np.array, header_fmt='ieee', chunk_size=chunk_size)
+            logger.debug(
+                'VISA binary query to device \'%s\': \'%s\'', self.device['Device'], query)
+            logger.debug(
+                'VISA device \'%s\' response: %d values', self.device['Device'], len(response))
             return response
         except pyvisa.VisaIOError as e:
             msg = (

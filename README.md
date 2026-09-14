@@ -26,6 +26,7 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | `FLIRBoson` | FLIR Boson thermal camera | FLIR Boson SDK |
 | [`HighFinesseWS`](amodevices/highfinesse_ws/README.md) | HighFinesse WS series wavemeter | wlmData.dll (Windows DLL API) |
 | `Keysight53220A` | Keysight 53220A universal counter | VISA |
+| [`KeysightDSOX`](amodevices/keysight_dsox/README.md) | Keysight/Agilent InfiniiVision 2000/3000 X-Series oscilloscopes (DSO-X, MSO-X) | VISA |
 | `KJLC354` | Kurt J. Lesker KJLC 354/352 and InstruTech IGM401/402 ion pressure gauges, KJLC 300 series Pirani pressure gauge | Serial (RS-485) |
 | `KJLCACG` | Kurt J. Lesker KJLC ACG series capacitance manometer | Serial (RS-232) |
 | `KJLCXCG` | Kurt J. Lesker KJLC Carbon XCG series pressure gauge (custom Arduino readout) | USB serial |
