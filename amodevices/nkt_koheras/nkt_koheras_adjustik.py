@@ -241,13 +241,26 @@ def status_word(status_bits):
     return STATUS_OK
 
 
-def _text_or_hex(data):
-    """A register's bytes as text when they are printable ASCII, else as
-    hex (the firmware version register's format is not documented)."""
+def _printable(data):
+    """The leading NUL-terminated ASCII text of `data`, or '' when it is
+    not printable."""
     text = data.split(b'\x00', 1)[0]
     if text and all(0x20 <= byte < 0x7F for byte in text):
         return text.decode('ascii').strip()
-    return data.hex(' ')
+    return ''
+
+
+def decode_firmware(data):
+    """The firmware register (0x64) as text. Its format is not in the
+    manual; a K1x2 module answers a 16-bit version code followed by a
+    build string (`75 00 31 2e 31 37 ...` = 117, "1.17-2345 Dec 21
+    2021 ..."), rendered as "1.17 (1.17-2345 Dec 21 2021 ...)". Plain
+    text is passed through, anything else shown as hex."""
+    if len(data) >= 3 and data[1] == 0 and _printable(data[2:]):
+        version = int.from_bytes(data[:2], 'little')
+        return f'{version // 100}.{version % 100:02d} ({_printable(data[2:])})'
+    text = _printable(data)
+    return text if text else data.hex(' ')
 
 
 class NKTKoherasAdjustik(dev_generic.Device):
@@ -350,7 +363,7 @@ class NKTKoherasAdjustik(dev_generic.Device):
                 f'K1x2 type 0x{MODULE_TYPE_BASIK:02X}')
         self.serial_number = transport.read_str(
             self.basik_address, BasikReg.SERIAL_NUMBER)
-        self.firmware_version = _text_or_hex(
+        self.firmware_version = decode_firmware(
             transport.read_register(self.basik_address, BasikReg.FIRMWARE))
         self._standard_wavelength_pm = (
             transport.read_u32(self.basik_address,
@@ -495,7 +508,8 @@ class NKTKoherasAdjustik(dev_generic.Device):
         module), as text when printable, else as hex bytes."""
         transport = self._require_connection()
         address = self.basik_address if address is None else address
-        return _text_or_hex(transport.read_register(address, BasikReg.FIRMWARE))
+        return decode_firmware(
+            transport.read_register(address, BasikReg.FIRMWARE))
 
     # ------------------------------------------------------------------
     # BASIK module: emission and setup

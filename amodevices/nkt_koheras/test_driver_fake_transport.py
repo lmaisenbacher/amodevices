@@ -37,7 +37,7 @@ def healthy_registers():
     return {
         (BASIK, BasikReg.MODULE_TYPE): b'\x33',
         (BASIK, BasikReg.SERIAL_NUMBER): b'17360328',
-        (BASIK, BasikReg.FIRMWARE): b'1.06',
+        (BASIK, BasikReg.FIRMWARE): b'u\x001.17-2345 Dec 21 2021 13:25:2\x00',
         (BASIK, BasikReg.STANDARD_WAVELENGTH):
             (10640000).to_bytes(4, 'little'),
         (BASIK, BasikReg.WAVELENGTH_OFFSET_SETPOINT):
@@ -148,7 +148,7 @@ def test_connect_verifies_the_modules_and_caches_the_constants(caplog):
         dev = connected()
     assert dev.device_connected and dev.mainboard_present
     assert dev.serial_number == '17360328'
-    assert dev.firmware_version == '1.06'
+    assert dev.firmware_version == '1.17 (1.17-2345 Dec 21 2021 13:25:2)'
     assert dev.get_standard_wavelength_nm() == pytest.approx(1064.0)
     assert dev.wavelength_offset_limits_pm == pytest.approx((-289., 349.))
     assert dev.wavelength_offset_limits_source == 'paramset'

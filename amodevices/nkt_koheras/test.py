@@ -32,7 +32,7 @@ from amodevices.dev_exceptions import DeviceError
 from amodevices.nkt_koheras.nkt_koheras_adjustik import (
     NKTKoherasAdjustik, BasikReg, MainboardReg, BASIK_SETUP_BITS,
     BASIK_STATUS_BITS, MAINBOARD_STATUS_BITS, MAINBOARD_MODULATION_SETUP_BITS,
-    decode_bits, status_word)
+    decode_bits, decode_firmware, status_word)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 #: The read-only dump: (address name, register, description, decoder)
 DUMP = [
     ('BASIK', BasikReg.MODULE_TYPE, 'module type', 'u8'),
-    ('BASIK', BasikReg.FIRMWARE, 'firmware', 'text'),
+    ('BASIK', BasikReg.FIRMWARE, 'firmware', 'firmware'),
     ('BASIK', BasikReg.SERIAL_NUMBER, 'serial number', 'text'),
     ('BASIK', BasikReg.EMISSION, 'emission', 'u8'),
     ('BASIK', BasikReg.SETUP, 'setup bits', 'setup'),
@@ -83,6 +83,8 @@ def decode(kind, data):
         return str(struct.unpack(fmt, data[:size])[0])
     if kind == 'text':
         return data.split(b'\x00', 1)[0].decode('ascii', 'replace')
+    if kind == 'firmware':
+        return decode_firmware(data)
     if kind in ('setup', 'status', 'system_status', 'modulation_setup'):
         if len(data) < 2:
             return f'{data.hex(" ")} (short)'
