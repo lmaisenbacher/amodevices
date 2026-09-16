@@ -32,6 +32,7 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | `KJLCXCG` | Kurt J. Lesker KJLC Carbon XCG series pressure gauge (custom Arduino readout) | USB serial |
 | [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |
+| [`NKTKoherasAdjustik`](amodevices/nkt_koheras/README.md) | NKT Photonics Koheras ADJUSTIK (K822) laser system with Koheras BASIK (K1x2) module | USB serial (pyserial, NKT Interbus), TCP/IP |
 | `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator | VISA |
 | `RigolRSA3000` | Rigol RSA3000 spectrum analyzer | VISA |
 | `RPLockbox` | Red Pitaya lockbox | TCP/IP (SCPI) |
