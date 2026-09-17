@@ -33,6 +33,7 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |
 | [`NKTKoherasAdjustik`](amodevices/nkt_koheras/README.md) | NKT Photonics Koheras ADJUSTIK (K822) laser system with Koheras BASIK (K1x2) module | USB serial (pyserial, NKT Interbus), TCP/IP |
+| [`OphirEA1`](amodevices/ophir_ea1/README.md) | Ophir EA-1 Ethernet adapter with an Ophir smart sensor head (PE50BF-DFH-C pyroelectric energy head): settings and per-pulse energy stream | TCP/IP (Telnet) |
 | `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator | VISA |
 | `RigolRSA3000` | Rigol RSA3000 spectrum analyzer | VISA |
 | `RPLockbox` | Red Pitaya lockbox | TCP/IP (SCPI) |

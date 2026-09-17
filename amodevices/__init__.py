@@ -21,3 +21,4 @@ from .highfinesse_ws.highfinesse_ws import HighFinesseWS
 from .kjlc_354.kjlc_354 import KJLC354
 from .kjlc_acg.kjlc_acg import KJLCACG
 from .kjlc_xcg.kjlc_xcg import KJLCXCG
+from .ophir_ea1.ophir_ea1 import OphirEA1
