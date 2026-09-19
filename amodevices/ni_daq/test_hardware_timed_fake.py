@@ -113,8 +113,10 @@ def test_generation_layout_retiming_and_completion(dev):
     dev.start_ao_generation({'x': [0., 0.5, 1.], 'y': [0., 0., 0.]}, rate_hz=1000.)
     assert task.written[-1] == [[0., 0.5, 1.], [0., 0., 0.]]   # a list per channel
     assert task.timing.calls == [(1000., 3)]
-    # Committed once with the timing, so later starts skip the programming
+    # Committed once with the timing (the buffer sized first), so later
+    # starts skip the programming
     assert task.control_calls == [ni_daq.TaskMode.TASK_COMMIT]
+    assert task.out_stream.output_buf_size == 3
     assert not dev.ao_generation_done()
     task.out_stream.total_samp_per_chan_generated = 2
     assert dev.current_ao_voltages() == {'x': 0.5, 'y': 0.}
@@ -136,6 +138,7 @@ def test_generation_layout_retiming_and_completion(dev):
     assert task.control_calls == [ni_daq.TaskMode.TASK_COMMIT,
                                   ni_daq.TaskMode.TASK_UNRESERVE,
                                   ni_daq.TaskMode.TASK_COMMIT]
+    assert task.out_stream.output_buf_size == 2
 
 
 def test_restart_and_refusal_keep_the_reached_sample(dev):

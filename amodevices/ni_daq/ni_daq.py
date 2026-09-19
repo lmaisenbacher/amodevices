@@ -373,6 +373,11 @@ class NIDAQ(dev_generic.Device):
                 self.ao_task.timing.cfg_samp_clk_timing(
                     rate=rate_hz, sample_mode=AcquisitionType.FINITE,
                     samps_per_chan=n)
+                # DAQmx sizes an output buffer at the first write, and a
+                # commit before that is a "non-buffered hardware-timed"
+                # task the card refuses (-201025): size it here, one
+                # generation's worth
+                self.ao_task.out_stream.output_buf_size = n
                 self.ao_task.control(TaskMode.TASK_COMMIT)
                 self._ao_timing_configured = (rate_hz, n)
             # A one-channel task takes a flat list, several channels a
