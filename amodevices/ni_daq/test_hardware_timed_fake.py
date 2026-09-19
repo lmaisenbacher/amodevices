@@ -33,6 +33,7 @@ class FakeTask:
         self.closed = False
         self.readback = {}          # internal AO readback per channel name
         self.refuse_start = False
+        self.control_calls = []     # TaskMode values passed to control()
         FakeTask.instances.append(self)
 
     def __enter__(self):
@@ -49,6 +50,9 @@ class FakeTask:
 
     def _cfg(self, rate, sample_mode, samps_per_chan):
         self.timing.calls.append((rate, samps_per_chan))
+
+    def control(self, mode):
+        self.control_calls.append(mode)
 
     def read(self, number_of_samples_per_channel=None):
         values = [self.readback.get(c, 0.) for c in self.ai]
@@ -109,6 +113,8 @@ def test_generation_layout_retiming_and_completion(dev):
     dev.start_ao_generation({'x': [0., 0.5, 1.], 'y': [0., 0., 0.]}, rate_hz=1000.)
     assert task.written[-1] == [[0., 0.5, 1.], [0., 0., 0.]]   # a list per channel
     assert task.timing.calls == [(1000., 3)]
+    # Committed once with the timing, so later starts skip the programming
+    assert task.control_calls == [ni_daq.TaskMode.TASK_COMMIT]
     assert not dev.ao_generation_done()
     task.out_stream.total_samp_per_chan_generated = 2
     assert dev.current_ao_voltages() == {'x': 0.5, 'y': 0.}
@@ -126,6 +132,10 @@ def test_generation_layout_retiming_and_completion(dev):
     dev.finish_ao_generation()
     dev.start_ao_generation({'x': [2., 2.], 'y': [0., 0.]}, rate_hz=1000.)
     assert task.timing.calls == [(1000., 3), (1000., 2)]
+    # A new shape: unreserved, retimed, committed again
+    assert task.control_calls == [ni_daq.TaskMode.TASK_COMMIT,
+                                  ni_daq.TaskMode.TASK_UNRESERVE,
+                                  ni_daq.TaskMode.TASK_COMMIT]
 
 
 def test_restart_and_refusal_keep_the_reached_sample(dev):
@@ -174,3 +184,6 @@ def test_on_demand_mode_is_unchanged(monkeypatch):
     assert dev.ao_voltages['x'] == 1.5
     with pytest.raises(DeviceError):
         dev.start_ao_generation({'x': [0., 1.], 'y': [0., 0.]}, rate_hz=1000.)
+    # The on-demand tasks are never committed or retimed (the piezo server's mode)
+    assert all(t.control_calls == [] and t.timing.calls == []
+               for t in dev.ao_tasks.values())

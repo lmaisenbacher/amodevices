@@ -27,7 +27,7 @@ import logging
 import warnings
 
 import nidaqmx
-from nidaqmx.constants import AcquisitionType
+from nidaqmx.constants import AcquisitionType, TaskMode
 from nidaqmx.errors import DaqError, DaqWarning, DaqWriteError
 
 from .. import dev_generic
@@ -335,9 +335,12 @@ class NIDAQ(dev_generic.Device):
         and holds the last ones. A generation still running is stopped
         first, wherever it got to, and that is where the outputs stay if
         the new one is refused (see :meth:`current_ao_voltages`). The
-        task is retimed only when the sample count or the rate changes,
-        so a run of equal moves stays in the committed state. Returns at
-        once; poll :meth:`ao_generation_done` and then call
+        task is retimed — and explicitly committed — only when the sample
+        count or the rate changes: a stopped task returns to the committed
+        state, so every start of a run of equal moves skips DAQmx's buffer
+        allocation and hardware programming (about 15 ms on a USB-6343
+        without the commit, under a millisecond with it). Returns at once;
+        poll :meth:`ao_generation_done` and then call
         :meth:`finish_ao_generation`.
 
         Raises `DeviceError` outside hardware-timed mode, for a missing
@@ -363,9 +366,14 @@ class NIDAQ(dev_generic.Device):
         try:
             self._settle_generation()
             if self._ao_timing_configured != (rate_hz, n):
+                if self._ao_timing_configured is not None:
+                    # Back to the unreserved state before the buffer size
+                    # or the rate of a committed task changes
+                    self.ao_task.control(TaskMode.TASK_UNRESERVE)
                 self.ao_task.timing.cfg_samp_clk_timing(
                     rate=rate_hz, sample_mode=AcquisitionType.FINITE,
                     samps_per_chan=n)
+                self.ao_task.control(TaskMode.TASK_COMMIT)
                 self._ao_timing_configured = (rate_hz, n)
             # A one-channel task takes a flat list, several channels a
             # list per channel
