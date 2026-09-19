@@ -24,6 +24,7 @@ Analog output runs in one of two modes, ``AOTiming`` in the config:
 """
 
 import logging
+import time
 import warnings
 
 import nidaqmx
@@ -314,12 +315,17 @@ class NIDAQ(dev_generic.Device):
         if gen is None:
             return
         try:
+            t0 = time.perf_counter()
             reached = self._generation_index(gen)
+            t1 = time.perf_counter()
             with warnings.catch_warnings():
                 # Stopping a finite task before its last sample is a
                 # DAQmx warning (200010); here it is the intent
                 warnings.simplefilter('ignore', DaqWarning)
                 self.ao_task.stop()
+            logger.debug('AO generation settled at sample %d of %d: count'
+                         ' %.1f ms, stop %.1f ms', reached + 1, gen['n'],
+                         (t1 - t0) * 1e3, (time.perf_counter() - t1) * 1e3)
         finally:
             self._ao_generation = None
         for axis, row in zip(self._ao_axis_order, gen['samples']):
@@ -364,7 +370,9 @@ class NIDAQ(dev_generic.Device):
         if not rate_hz > 0.:
             raise DeviceError(f'The sample rate must be positive, got {rate_hz}')
         try:
+            t0 = time.perf_counter()
             self._settle_generation()
+            t1 = time.perf_counter()
             if self._ao_timing_configured != (rate_hz, n):
                 if self._ao_timing_configured is not None:
                     # Back to the unreserved state before the buffer size
@@ -380,24 +388,36 @@ class NIDAQ(dev_generic.Device):
                 self.ao_task.out_stream.output_buf_size = n
                 self.ao_task.control(TaskMode.TASK_COMMIT)
                 self._ao_timing_configured = (rate_hz, n)
+            t2 = time.perf_counter()
             # A one-channel task takes a flat list, several channels a
             # list per channel
             self.ao_task.write(rows if len(rows) > 1 else rows[0],
                                auto_start=False)
+            t3 = time.perf_counter()
             self.ao_task.start()
+            t4 = time.perf_counter()
         except (DaqError, DaqWriteError) as e:
             raise DeviceError(str(e)) from e
         self._ao_generation = {'samples': rows, 'n': n, 'rate_hz': rate_hz}
+        logger.debug('AO generation of %d samples at %g S/s started: settle'
+                     ' %.1f ms, timing %.1f ms, write %.1f ms, start %.1f ms',
+                     n, rate_hz, (t1 - t0) * 1e3, (t2 - t1) * 1e3,
+                     (t3 - t2) * 1e3, (t4 - t3) * 1e3)
 
     def ao_generation_done(self):
         """Whether the generation in progress has clocked out its last
-        sample (True as well when none is in progress). Never blocks."""
-        if self._ao_generation is None:
+        sample (True as well when none is in progress). Never blocks.
+        Judged from the card's count of generated samples, not
+        ``is_task_done`` — that query costs about 24 ms on a USB-6343,
+        the count under 3 ms."""
+        gen = self._ao_generation
+        if gen is None:
             return True
         try:
-            return bool(self.ao_task.is_task_done())
+            count = int(self.ao_task.out_stream.total_samp_per_chan_generated)
         except DaqError as e:
             raise DeviceError(str(e)) from e
+        return count >= gen['n']
 
     def finish_ao_generation(self):
         """Stop the generation in progress — completed, or abandoned

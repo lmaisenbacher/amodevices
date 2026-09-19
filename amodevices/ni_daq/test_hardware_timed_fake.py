@@ -72,7 +72,8 @@ class FakeTask:
         self.running = False
 
     def is_task_done(self):
-        return not self.running
+        raise AssertionError('is_task_done is 24 ms a call on the USB-6343; '
+                             'the driver judges from the sample count')
 
     def close(self):
         self.closed = True
@@ -120,8 +121,7 @@ def test_generation_layout_retiming_and_completion(dev):
     assert not dev.ao_generation_done()
     task.out_stream.total_samp_per_chan_generated = 2
     assert dev.current_ao_voltages() == {'x': 0.5, 'y': 0.}
-    task.out_stream.total_samp_per_chan_generated = 3
-    task.running = False                                     # the card finished
+    task.out_stream.total_samp_per_chan_generated = 3        # the card finished
     assert dev.ao_generation_done()
     dev.finish_ao_generation()
     assert dev.ao_voltages == {'x': 1., 'y': 0.}
@@ -130,7 +130,6 @@ def test_generation_layout_retiming_and_completion(dev):
     dev.start_ao_generation({'x': [1., 1., 2.], 'y': [0., 0., 0.]}, rate_hz=1000.)
     assert task.timing.calls == [(1000., 3)]
     task.out_stream.total_samp_per_chan_generated = 3
-    task.running = False
     dev.finish_ao_generation()
     dev.start_ao_generation({'x': [2., 2.], 'y': [0., 0.]}, rate_hz=1000.)
     assert task.timing.calls == [(1000., 3), (1000., 2)]
