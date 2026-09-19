@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.26',
+    version='0.1.27',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
