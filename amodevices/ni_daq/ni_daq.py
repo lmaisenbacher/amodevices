@@ -24,9 +24,11 @@ Analog output runs in one of two modes, ``AOTiming`` in the config:
 """
 
 import logging
+import warnings
+
 import nidaqmx
 from nidaqmx.constants import AcquisitionType
-from nidaqmx.errors import DaqError, DaqWriteError
+from nidaqmx.errors import DaqError, DaqWarning, DaqWriteError
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
@@ -79,8 +81,10 @@ class NIDAQ(dev_generic.Device):
         self.ao_task: nidaqmx.Task | None = None
         self._ao_axis_order: list[str] = list(self.ao_channels)
         # The generation in progress (hardware mode): its samples per axis
-        # and their count, None between generations
+        # and their count, None between generations; the (rate, samples)
+        # the task's timing is configured for, retimed only on a change
         self._ao_generation = None
+        self._ao_timing_configured = None
         self.ao_voltages = {axis: None for axis in self.ao_channels}
 
         self.ai_channel_default = config.get('AIChannelDefault', {})
@@ -111,6 +115,13 @@ class NIDAQ(dev_generic.Device):
         clean "not initialized" state.
         """
         if self.ao_timing == AO_TIMING_HARDWARE:
+            # The outputs keep their voltages across tasks and processes,
+            # so a move must start from what they carry now, not from
+            # zero: seed the cache from the card's own AO readback
+            # channels (X Series: Dev1/_ao0_vs_aognd) before any
+            # generation. A device without them leaves the cache at None
+            # (a first move then starts from 0 V, with a warning).
+            self._read_ao_outputs()
             # One task over every axis; timing is configured per
             # generation (`start_ao_generation`), which also starts it
             self.ao_task = nidaqmx.Task()
@@ -169,11 +180,11 @@ class NIDAQ(dev_generic.Device):
             task.close()
         if self.ao_task is not None:
             try:
-                self.ao_task.stop()
+                self._settle_generation()
             finally:
                 self.ao_task.close()
             self.ao_task = None
-            self._ao_generation = None
+            self._ao_timing_configured = None
         if self.ai_task is not None:
             try:
                 self.ai_task.stop()
@@ -265,6 +276,55 @@ class NIDAQ(dev_generic.Device):
     # Hardware-timed generation (AOTiming 'hardware')
     # ------------------------------------------------------------------
 
+    def _read_ao_outputs(self):
+        """Seed ``ao_voltages`` from the card's internal AO readback
+        channels, one short on-demand read; a device without them (or a
+        refused read) logs a warning and leaves the cache as it is."""
+        try:
+            with nidaqmx.Task() as task:
+                for axis, chan in self.ao_channels.items():
+                    device, name = chan['ChannelName'].split('/', 1)
+                    task.ai_channels.add_ai_voltage_chan(
+                        f'{device}/_{name}_vs_aognd',
+                        name_to_assign_to_channel=axis,
+                        min_val=-10., max_val=10.)
+                result = task.read()
+        except DaqError as e:
+            logger.warning(
+                'Could not read the AO outputs back (%s); the first move of'
+                ' each axis starts from 0 V', str(e).splitlines()[0])
+            return
+        values = [float(result)] if len(self.ao_channels) == 1 else [
+            float(v) for v in result]
+        for axis, value in zip(self.ao_channels, values):
+            self.ao_voltages[axis] = value
+        logger.info('AO outputs read back: %s', ', '.join(
+            f'{axis} {value:+.4f} V' for axis, value in zip(self.ao_channels, values)))
+
+    def _generation_index(self, gen):
+        """The index of the sample the card has reached in `gen`."""
+        count = int(self.ao_task.out_stream.total_samp_per_chan_generated)
+        return min(max(count - 1, 0), gen['n'] - 1)
+
+    def _settle_generation(self):
+        """Stop the generation in progress, wherever it got to, and make
+        the samples the card had reached the cached ``ao_voltages``: what
+        the outputs carry from here on. Nothing to do without one."""
+        gen = self._ao_generation
+        if gen is None:
+            return
+        try:
+            reached = self._generation_index(gen)
+            with warnings.catch_warnings():
+                # Stopping a finite task before its last sample is a
+                # DAQmx warning (200010); here it is the intent
+                warnings.simplefilter('ignore', DaqWarning)
+                self.ao_task.stop()
+        finally:
+            self._ao_generation = None
+        for axis, row in zip(self._ao_axis_order, gen['samples']):
+            self.ao_voltages[axis] = row[reached]
+
     def start_ao_generation(self, samples, rate_hz):
         """Start clocking `samples` out of every AO channel at `rate_hz`.
 
@@ -273,12 +333,16 @@ class NIDAQ(dev_generic.Device):
         a moving axis gets its ramp, a resting one its current voltage
         repeated. The card generates them at `rate_hz` samples per second
         and holds the last ones. A generation still running is stopped
-        first, wherever it got to (see :meth:`current_ao_voltages` for
-        where that is). Returns at once; poll :meth:`ao_generation_done`
-        and then call :meth:`finish_ao_generation`.
+        first, wherever it got to, and that is where the outputs stay if
+        the new one is refused (see :meth:`current_ao_voltages`). The
+        task is retimed only when the sample count or the rate changes,
+        so a run of equal moves stays in the committed state. Returns at
+        once; poll :meth:`ao_generation_done` and then call
+        :meth:`finish_ao_generation`.
 
         Raises `DeviceError` outside hardware-timed mode, for a missing
-        or ragged axis, or when DAQmx refuses.
+        or ragged axis, a rate that is not positive, or when DAQmx
+        refuses.
         """
         if self.ao_timing != AO_TIMING_HARDWARE or self.ao_task is None:
             raise DeviceError(
@@ -293,13 +357,16 @@ class NIDAQ(dev_generic.Device):
             raise DeviceError(
                 f'Every axis needs the same number of samples, at least'
                 f' {AO_GENERATION_MIN_SAMPLES}')
+        rate_hz = float(rate_hz)
+        if not rate_hz > 0.:
+            raise DeviceError(f'The sample rate must be positive, got {rate_hz}')
         try:
-            if self._ao_generation is not None:
-                self.ao_task.stop()
-                self._ao_generation = None
-            self.ao_task.timing.cfg_samp_clk_timing(
-                rate=float(rate_hz), sample_mode=AcquisitionType.FINITE,
-                samps_per_chan=n)
+            self._settle_generation()
+            if self._ao_timing_configured != (rate_hz, n):
+                self.ao_task.timing.cfg_samp_clk_timing(
+                    rate=rate_hz, sample_mode=AcquisitionType.FINITE,
+                    samps_per_chan=n)
+                self._ao_timing_configured = (rate_hz, n)
             # A one-channel task takes a flat list, several channels a
             # list per channel
             self.ao_task.write(rows if len(rows) > 1 else rows[0],
@@ -307,7 +374,7 @@ class NIDAQ(dev_generic.Device):
             self.ao_task.start()
         except (DaqError, DaqWriteError) as e:
             raise DeviceError(str(e)) from e
-        self._ao_generation = {'samples': rows, 'n': n, 'rate_hz': float(rate_hz)}
+        self._ao_generation = {'samples': rows, 'n': n, 'rate_hz': rate_hz}
 
     def ao_generation_done(self):
         """Whether the generation in progress has clocked out its last
@@ -320,19 +387,13 @@ class NIDAQ(dev_generic.Device):
             raise DeviceError(str(e)) from e
 
     def finish_ao_generation(self):
-        """Stop a completed (or abandoned) generation; the outputs hold
-        its last samples, which become the cached ``ao_voltages``."""
-        if self._ao_generation is None:
-            return
-        rows = self._ao_generation['samples']
+        """Stop the generation in progress — completed, or abandoned
+        wherever it got to — the samples the card reached becoming the
+        cached ``ao_voltages``."""
         try:
-            self.ao_task.stop()
+            self._settle_generation()
         except DaqError as e:
             raise DeviceError(str(e)) from e
-        finally:
-            self._ao_generation = None
-        for axis, row in zip(self._ao_axis_order, rows):
-            self.ao_voltages[axis] = row[-1]
 
     def current_ao_voltages(self):
         """The voltages on the AO channels at this instant: during a
@@ -343,9 +404,8 @@ class NIDAQ(dev_generic.Device):
         if gen is None:
             return dict(self.ao_voltages)
         try:
-            count = int(self.ao_task.out_stream.total_samp_per_chan_generated)
+            index = self._generation_index(gen)
         except DaqError as e:
             raise DeviceError(str(e)) from e
-        index = min(max(count - 1, 0), gen['n'] - 1)
         return {axis: row[index]
                 for axis, row in zip(self._ao_axis_order, gen['samples'])}
