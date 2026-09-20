@@ -494,3 +494,121 @@ class RPLockbox(dev_generic.Device):
         """Return the voltage (in V) on the auxiliary (slow, XADC) analog input `pin` (0-3),
         one of the inputs the relock feature monitors."""
         return float(self.txrx_txt(f'ANALOG:PIN? AIN{pin:d}'))
+
+    # Lockbox monitor (the lockbox-monitor service of rp-lockbox 1.3.0): lock
+    # drops counted at 1 kHz on the box and the input noise statistics. While
+    # the service is not running the SCPI server answers these queries with
+    # an error, which the client sees as a receive timeout (`DeviceError`
+    # after the socket's timeout): a poller asks `get_monitor_health()`
+    # first, which always answers, and skips the rest while `alive` is False.
+
+    #: The fields of `PID:IN#:OUT#:MONitor?`, in reply order
+    MONITOR_FIELDS = (
+        ('locked', bool), ('lock_age_s', float), ('servo_on', bool), ('servo_age_s', float),
+        ('unlocks_total', int), ('unlocked_total_s', float), ('unlocks_since_servo', int),
+        ('unlocked_since_servo_s', float), ('longest_since_servo_s', float),
+        ('drop_open', bool), ('last_unlock_age_s', float), ('last_unlock_s', float),
+        ('raw_unlock_edges', int))
+
+    #: The fields of `ANALOG:IN#:STATs?`, in reply order
+    INPUT_STATS_FIELDS = (
+        ('mean_v', float), ('sd_v', float), ('min_v', float), ('max_v', float),
+        ('window_s', float), ('age_s', float), ('decimation', int))
+
+    #: The scope decimations the input statistics accept (bandwidth of the
+    #: averaging, -3 dB): 64 (850 kHz), 1024 (54 kHz), 8192 (6.7 kHz),
+    #: 65536 (0.85 kHz)
+    STATS_DECIMATIONS = (64, 1024, 8192, 65536)
+
+    def _parse_fields(self, query, response, fields):
+        """The comma-separated `response` to `query` as a dict per `fields`
+        ((name, type) pairs); an empty or short reply is the monitor's
+        error."""
+        parts = response.split(',') if response else []
+        if len(parts) != len(fields):
+            raise DeviceError(
+                f'{query}: unexpected reply {response!r} (the lockbox monitor service may not be'
+                f' running)')
+        values = {}
+        for (name, kind), part in zip(fields, parts):
+            values[name] = kind(int(part)) if kind is bool else kind(part)
+        return values
+
+    def get_pid_monitor(self, num_in, num_out):
+        """Return the lockbox monitor's view of the specified PID as a dict with
+        the keys of `MONITOR_FIELDS`: the merged lock state and its age, the
+        servo mode (hold off) and its age (-1 while the hold is on), the lock
+        drops and the time spent unlocked since the monitor started and since
+        the hold went off, the longest drop since the hold went off, whether a
+        drop is open, the latest drop's age and duration (-1 if none yet), and
+        the raw falling edges of the lock flag. Needs rp-lockbox 1.3.0 (the
+        lockbox monitor service)."""
+        query = f'PID:IN{num_in}:OUT{num_out}:MON?'
+        return self._parse_fields(query, self.txrx_txt(query), self.MONITOR_FIELDS)
+
+    def get_unlock_count(self, num_in, num_out):
+        """Return the specified PID's lock drops since the lockbox monitor started
+        (monotonic: take the difference between polls)."""
+        query = f'PID:IN{num_in}:OUT{num_out}:UNL:COUN?'
+        return self._parse_fields(query, self.txrx_txt(query), (('count', int),))['count']
+
+    def get_unlocked_time(self, num_in, num_out):
+        """Return the time (in s) the specified PID spent in lock drops since
+        the lockbox monitor started (monotonic, the open drop included)."""
+        query = f'PID:IN{num_in}:OUT{num_out}:UNL:TIME?'
+        return self._parse_fields(query, self.txrx_txt(query), (('time', float),))['time']
+
+    def get_unlock_events(self, num_in, num_out, after=0):
+        """Return the specified PID's lock drops with an index above `after`,
+        oldest first, as a list of dicts with 'index' (1-based, increasing
+        since the monitor started), 'age_s' (time since the drop began) and
+        'duration_s'. The monitor keeps the last 64 drops."""
+        query = f'PID:IN{num_in}:OUT{num_out}:UNL:EVEN? {int(after)}'
+        response = self.txrx_txt(query)
+        parts = response.split(',') if response else []
+        if not parts or len(parts) != 1 + 3 * int(parts[0]):
+            raise DeviceError(
+                f'{query}: unexpected reply {response!r} (the lockbox monitor service may not be'
+                f' running)')
+        return [
+            {'index': int(parts[i]), 'age_s': float(parts[i+1]), 'duration_s': float(parts[i+2])}
+            for i in range(1, len(parts), 3)]
+
+    def get_monitor_health(self):
+        """Return the lockbox monitor service's health as a dict: 'alive', its
+        'uptime_s', its poll 'period_ms', the longest gap between polls
+        'max_gap_ms', the number of 'late_polls' (later than two periods) and
+        the lock time 'merge_ms' that closes a drop. A monitor that is not
+        running answers with alive False (no error)."""
+        query = 'LOCK:MON?'
+        return self._parse_fields(query, self.txrx_txt(query), (
+            ('alive', bool), ('uptime_s', float), ('period_ms', float), ('max_gap_ms', float),
+            ('late_polls', int), ('merge_ms', float)))
+
+    def get_fast_analog_input_stats(self, num_in):
+        """Return the lockbox monitor's noise statistics of fast analog input
+        `num_in` over its last window (about a second) as a dict with the
+        keys of `INPUT_STATS_FIELDS`: the mean, the standard deviation about
+        it (the rms noise; in lock, the rms error), minimum and maximum (V),
+        the window length (s), the time since the window ended (s; -1 while
+        none exists yet) and the scope decimation the samples were averaged
+        over."""
+        query = f'ANALOG:IN{num_in:d}:STAT?'
+        return self._parse_fields(query, self.txrx_txt(query), self.INPUT_STATS_FIELDS)
+
+    def set_fast_analog_input_stats_decimation(self, decimation):
+        """Select the scope decimation of the lockbox monitor's input statistics
+        (one of `STATS_DECIMATIONS`; the averaging over it sets the
+        bandwidth). Global to both inputs; the monitor keeps the value
+        across restarts and applies it from its next window."""
+        if decimation not in self.STATS_DECIMATIONS:
+            raise DeviceError(
+                f'Invalid input statistics decimation {decimation!r} (one of'
+                f' {", ".join(str(d) for d in self.STATS_DECIMATIONS)})')
+        self.tx_txt(f'ANALOG:STAT:DEC {int(decimation)}')
+
+    def get_fast_analog_input_stats_decimation(self):
+        """Return the scope decimation the lockbox monitor's input statistics
+        use (0 while the statistics have no window yet or are switched off)."""
+        query = 'ANALOG:STAT:DEC?'
+        return self._parse_fields(query, self.txrx_txt(query), (('decimation', int),))['decimation']
