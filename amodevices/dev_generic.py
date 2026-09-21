@@ -92,6 +92,12 @@ class Device:
         if n_write_bytes != len(query):
             raise DeviceError(f'{self.device["Device"]}: Query failed')
 
+    def visa_address_is_lan(self) -> bool:
+        """Whether the configured VISA address names a LAN resource
+        ('TCPIP...::INSTR' or '...::SOCKET'), which `init_visa` opens
+        without enumerating the VISA library's resources first."""
+        return str(self.device.get('Address', '')).upper().startswith('TCPIP')
+
     def init_visa(self):
         """Initialize VISA connection."""
         # Release any previously opened resource first, so repeated
@@ -105,21 +111,28 @@ class Device:
         self.device_connected = False
         # Initialize PyVISA to talk to VISA devices
         visa_rm = pyvisa.ResourceManager()
-        visa_rsrc_list = visa_rm.list_resources()
 
         # Check if device can be found, then open device connection
         logger.info(
             'Connecting to device \'%s\' with VISA resource name \'%s\'',
             self.device['Device'], self.device['Address'])
-        if self.device['Address'] in visa_rsrc_list:
+        if self.visa_address_is_lan():
+            # A LAN resource is opened directly: the enumeration below
+            # lists a LAN INSTR address only when it is registered with
+            # the VISA library (e.g. in NI MAX) — so it decides nothing —
+            # and NI-VISA probes the network for it, which took two
+            # minutes on the DAQ PC while an instrument still held the
+            # link of a process stopped seconds before (2026-09-21; the
+            # server's web UI is unreachable until the device is open)
+            logger.info(
+                'LAN resource: opening the connection directly and reading'
+                +' the instrument IDN...')
+        elif self.device['Address'] in visa_rm.list_resources():
             logger.info(
                 'A device with VISA resource name \'%s\' was found.'
                 +' Trying to open connection and read instrument IDN...',
                 self.device['Address'])
         else:
-            # LAN INSTR resources ('TCPIP0::<host>::inst0::INSTR') are
-            # enumerated only when registered with the VISA library (e.g.
-            # in NI MAX), so an unlisted address may still be reachable
             logger.warning(
                 'No device with VISA resource name \'%s\' is enumerated by the'
                 +' VISA library. Trying to open connection directly and read'
