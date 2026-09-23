@@ -30,12 +30,12 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | `KJLC354` | Kurt J. Lesker KJLC 354/352 and InstruTech IGM401/402 ion pressure gauges, KJLC 300 series Pirani pressure gauge | Serial (RS-485) |
 | `KJLCACG` | Kurt J. Lesker KJLC ACG series capacitance manometer | Serial (RS-232) |
 | `KJLCXCG` | Kurt J. Lesker KJLC Carbon XCG series pressure gauge (custom Arduino readout) | USB serial |
+| `LeyboldMagDrive` | Leybold MAG.DRIVE S/iS frequency converter of the TURBOVAC MAG W P / MAG W iP turbo pumps (converter type 201): status, process values and parameters, the control word in every telegram, and a simulated drive (`sim_magdrive`) | RS-232 (pyserial, Leybold USS telegram) |
 | [`LioptecLiopStar`](amodevices/lioptec_liopstar/README.md) | LIOP-TEC LiopStar-E dye laser | TCP/IP |
 | `NIDAQ` | NI DAQ analog input/output | NI-DAQmx |
-| `LeyboldMagDrive` | Leybold MAG.DRIVE S/iS frequency converter of the TURBOVAC MAG W P / MAG W iP turbo pumps (converter type 201): status, process values and parameters, the control word in every telegram, and a simulated drive (`sim_magdrive`) | RS-232 (pyserial, Leybold USS telegram) |
 | [`NKTKoherasAdjustik`](amodevices/nkt_koheras/README.md) | NKT Photonics Koheras ADJUSTIK (K822) laser system with Koheras BASIK (K1x2) module | USB serial (pyserial, NKT Interbus), TCP/IP |
 | [`OphirEA1`](amodevices/ophir_ea1/README.md) | Ophir EA-1 Ethernet adapter with an Ophir smart sensor head (PE50BF-DFH-C pyroelectric energy head): settings and per-pulse energy stream | TCP/IP (Telnet) |
-| `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator | VISA |
+| `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator: the frequency of each channel | VISA |
 | `RigolRSA3000` | Rigol RSA3000 spectrum analyzer | VISA |
 | `RPLockbox` | Red Pitaya lockbox | TCP/IP (SCPI) |
 | `SiglentSSA3000XPlus` | Siglent SSA3000X Plus spectrum analyzer | VISA |
