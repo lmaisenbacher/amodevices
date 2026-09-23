@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.30',
+    version='0.1.31',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -38,6 +38,7 @@ setup(
         'amodevices.caen_dt1470et',
         'amodevices.highfinesse_ws',
         'amodevices.ophir_ea1',
+        'amodevices.leybold_magdrive',
     ],
     install_requires=[
         'numpy',
