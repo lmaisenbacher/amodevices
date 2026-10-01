@@ -25,8 +25,28 @@ class RPLockbox(dev_generic.Device):
     Many functions take one or both of the following parameters:
     :num_in: the input channel to use (1 or 2)
     :num_out: the output channel to use (1 or 2)
+
+    The setpoint, the gains, the lock window and the holdoff exist once per parameter set
+    (rp-lockbox 1.4.0: each PID has two, selected by a digital input or fixed); their
+    functions take
+    :pset: the parameter set (1, the default, or 2)
+    Parameter set 1 is addressed with the commands of the releases before 1.4.0, so these
+    functions work unchanged with an older lockbox as long as `pset` is 1.
     """
     delimiter = '\r\n'
+
+    #: The parameter sets of a PID
+    PSETS = (1, 2)
+    #: The parameter set selection modes: always set 1 or 2, or the level of the
+    #: selected digital input - set 2 while it is high ('HIGH2') or set 1 while it is
+    #: high ('HIGH1')
+    PSET_MODES = ('PSET1', 'PSET2', 'HIGH2', 'HIGH1')
+    #: The digital inputs that can select the parameter set
+    PSET_INPUTS = ('DIO5_P', 'DIO6_P', 'DIO7_P', 'DIO0_N', 'DIO5_N', 'DIO6_N', 'DIO7_N')
+    #: The fields of `PID:IN#:OUT#:COUNTers?`, in reply order
+    COUNTER_FIELDS = (
+        ('switches', int), ('holdoffs_went_outside', int), ('holdoffs_ended_outside', int),
+        ('unlocks', int))
 
     default_scpi_connection_params = {
         'Port': 5000,
@@ -119,6 +139,14 @@ class RPLockbox(dev_generic.Device):
         self.tx_txt(msg)
         return self.rx_txt()
 
+    def _pid(self, num_in, num_out, pset=1):
+        """The command prefix of the specified PID and parameter set: parameter set 1
+        without a set node, as before parameter sets existed."""
+        if pset not in self.PSETS:
+            raise DeviceError(f'Invalid parameter set {pset!r} (1 or 2)')
+        prefix = f'PID:IN{num_in}:OUT{num_out}'
+        return prefix if pset == 1 else f'{prefix}:PSET{pset}'
+
     def set_output_state(self, num_out, state):
         """Disable or enable the signal generator output.
 
@@ -192,85 +220,85 @@ class RPLockbox(dev_generic.Device):
         """
         return float(self.txrx_txt('SOUR{}:VOLT:OFFS?'.format(num_out)))
 
-    def set_setpoint(self, num_in, num_out, value):
-        """Set the PID setpoint.
+    def set_setpoint(self, num_in, num_out, value, pset=1):
+        """Set the PID setpoint of parameter set `pset`.
 
         :value: the value to set in V
         """
-        self.tx_txt('PID:IN{}:OUT{}:SETPoint {}'.format(num_in, num_out, value))
+        self.tx_txt('{}:SETPoint {}'.format(self._pid(num_in, num_out, pset), value))
 
-    def get_setpoint(self, num_in, num_out):
-        """Return the PID setpoint.
+    def get_setpoint(self, num_in, num_out, pset=1):
+        """Return the PID setpoint of parameter set `pset`.
 
         :returns: the setpoint in V
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:SETPoint?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:SETPoint?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_kg(self, num_in, num_out, gain):
-        """Set the global gain.
+    def set_kg(self, num_in, num_out, gain, pset=1):
+        """Set the global gain of parameter set `pset`.
 
         :gain: the gain to set (0 to 4096)
         """
-        self.tx_txt('PID:IN{}:OUT{}:KG {}'.format(num_in, num_out, gain))
+        self.tx_txt('{}:KG {}'.format(self._pid(num_in, num_out, pset), gain))
 
-    def get_kg(self, num_in, num_out):
-        """Return the global gain.
+    def get_kg(self, num_in, num_out, pset=1):
+        """Return the global gain of parameter set `pset`.
 
         :returns: the global gain
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:KG?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:KG?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_kp(self, num_in, num_out, gain):
-        """Set the P gain.
+    def set_kp(self, num_in, num_out, gain, pset=1):
+        """Set the P gain of parameter set `pset`.
 
         :gain: the gain to set (0 to 4096)
         """
-        self.tx_txt('PID:IN{}:OUT{}:KP {}'.format(num_in, num_out, gain))
+        self.tx_txt('{}:KP {}'.format(self._pid(num_in, num_out, pset), gain))
 
-    def get_kp(self, num_in, num_out):
-        """Return the P gain.
+    def get_kp(self, num_in, num_out, pset=1):
+        """Return the P gain of parameter set `pset`.
 
         :returns: the P gain
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:KP?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:KP?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_ki(self, num_in, num_out, gain):
-        """Set the I gain.
+    def set_ki(self, num_in, num_out, gain, pset=1):
+        """Set the I gain of parameter set `pset`.
 
         :gain: the gain to set in 1/s. The unity gain frequency is ki/(2 pi)."""
-        self.tx_txt('PID:IN{}:OUT{}:KI {}'.format(num_in, num_out, gain))
+        self.tx_txt('{}:KI {}'.format(self._pid(num_in, num_out, pset), gain))
 
-    def get_ki(self, num_in, num_out):
-        """Return the I gain.
+    def get_ki(self, num_in, num_out, pset=1):
+        """Return the I gain of parameter set `pset`.
 
         :returns: the I gain in 1/s. The unity gain frequency is ki/(2 pi)."""
-        return float(self.txrx_txt('PID:IN{}:OUT{}:KI?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:KI?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_kii(self, num_in, num_out, gain):
-        """Set the II (second integrator) gain.
+    def set_kii(self, num_in, num_out, gain, pset=1):
+        """Set the II (second integrator) gain of parameter set `pset`.
 
         :gain: the gain to set in 1/s. The corner frequency is kii/(2 pi)."""
-        self.tx_txt('PID:IN{}:OUT{}:KII {}'.format(num_in, num_out, gain))
+        self.tx_txt('{}:KII {}'.format(self._pid(num_in, num_out, pset), gain))
 
-    def get_kii(self, num_in, num_out):
-        """Return the II (second integrator) gain.
+    def get_kii(self, num_in, num_out, pset=1):
+        """Return the II (second integrator) gain of parameter set `pset`.
 
         :returns: the II gain in 1/s. The corner frequency is kii/(2 pi)."""
-        return float(self.txrx_txt('PID:IN{}:OUT{}:KII?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:KII?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_kd(self, num_in, num_out, gain):
-        """Set the D gain.
+    def set_kd(self, num_in, num_out, gain, pset=1):
+        """Set the D gain of parameter set `pset`.
 
         :gain: the gain to set in s. The unity gain frequency is 1/(2 pi kd).
         """
-        self.tx_txt('PID:IN{}:OUT{}:KD {}'.format(num_in, num_out, gain))
+        self.tx_txt('{}:KD {}'.format(self._pid(num_in, num_out, pset), gain))
 
-    def get_kd(self, num_in, num_out):
-        """Return the D gain
+    def get_kd(self, num_in, num_out, pset=1):
+        """Return the D gain of parameter set `pset`.
 
         :returns: the D gain in s. The unity gain frequency is 1/(2 pi kd).
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:KD?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:KD?'.format(self._pid(num_in, num_out, pset))))
 
     def set_int_reset_state(self, num_in, num_out, state):
         """Reset the integrator register.
@@ -387,33 +415,54 @@ class RPLockbox(dev_generic.Device):
         """
         return float(self.txrx_txt('PID:IN{}:OUT{}:REL:STEP?'.format(num_in, num_out)))
 
-    def set_relock_minimum(self, num_in, num_out, minimum):
-        """Set the minimum input voltage for which the PID is considered locked
+    def set_relock_minimum(self, num_in, num_out, minimum, pset=1):
+        """Set the minimum input voltage for which the PID is considered locked, in
+        parameter set `pset`
 
         :minimum: the minimum input voltage to set
         """
-        self.tx_txt('PID:IN{}:OUT{}:REL:MIN {}'.format(num_in, num_out, minimum))
+        self.tx_txt('{}:REL:MIN {}'.format(self._pid(num_in, num_out, pset), minimum))
 
-    def get_relock_minimum(self, num_in, num_out):
-        """Return the minimum input voltage for which the PID is considered locked
+    def get_relock_minimum(self, num_in, num_out, pset=1):
+        """Return the minimum input voltage for which the PID is considered locked, in
+        parameter set `pset`
 
         :returns: the minimum input voltage
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:REL:MIN?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:REL:MIN?'.format(self._pid(num_in, num_out, pset))))
 
-    def set_relock_maximum(self, num_in, num_out, maximum):
-        """Set the maximum input voltage for which the PID is considered locked
+    def set_relock_maximum(self, num_in, num_out, maximum, pset=1):
+        """Set the maximum input voltage for which the PID is considered locked, in
+        parameter set `pset`
 
         :maximum: the maximum input voltage to set
         """
-        self.tx_txt('PID:IN{}:OUT{}:REL:MAX {}'.format(num_in, num_out, maximum))
+        self.tx_txt('{}:REL:MAX {}'.format(self._pid(num_in, num_out, pset), maximum))
 
-    def get_relock_maximum(self, num_in, num_out):
-        """Return the maximum input voltage for which the PID is considered locked
+    def get_relock_maximum(self, num_in, num_out, pset=1):
+        """Return the maximum input voltage for which the PID is considered locked, in
+        parameter set `pset`
 
         :returns: the maximum input voltage
         """
-        return float(self.txrx_txt('PID:IN{}:OUT{}:REL:MAX?'.format(num_in, num_out)))
+        return float(self.txrx_txt('{}:REL:MAX?'.format(self._pid(num_in, num_out, pset))))
+
+    def set_relock_holdoff(self, num_in, num_out, holdoff, pset=1):
+        """Set the holdoff of parameter set `pset`: for this time after a switch into the
+        set the lock status cannot go from locked to unlocked (no lock drop, no relock).
+        Needs rp-lockbox 1.4.0.
+
+        :holdoff: the holdoff in s (0 to 34)
+        """
+        self.tx_txt('{}:REL:HOLD {}'.format(self._pid(num_in, num_out, pset), holdoff))
+
+    def get_relock_holdoff(self, num_in, num_out, pset=1):
+        """Return the holdoff of parameter set `pset` (see `set_relock_holdoff`). Needs
+        rp-lockbox 1.4.0.
+
+        :returns: the holdoff in s
+        """
+        return float(self.txrx_txt('{}:REL:HOLD?'.format(self._pid(num_in, num_out, pset))))
 
     def set_relock_input(self, num_in, num_out, relock_input):
         """Set the XADC input to be used for relocking the specified PID
@@ -441,6 +490,90 @@ class RPLockbox(dev_generic.Device):
         """
         response = self.txrx_txt('PID:IN{}:OUT{}:LOCKED?'.format(num_in, num_out))
         return response == "ON"
+
+    def set_lock(self, num_in, num_out, state):
+        """Lock or scan with the specified PID in one step (the web interface's
+        Lock/Scan button). Lock: the signal generator of the PID's output is switched
+        off, then the integrator reset and the hold are released and the PID output is
+        switched on. Scan: the PID is held, its integrators are reset and its output is
+        switched off, then the generator is switched on. Needs rp-lockbox 1.4.0.
+
+        :state: True to lock, False to scan
+        """
+        self.tx_txt('PID:IN{}:OUT{}:LOCK {}'.format(num_in, num_out, int(state)))
+
+    def get_lock(self, num_in, num_out):
+        """Return whether the specified PID locks: its output is on, it is not held and
+        its integrators are not reset. Needs rp-lockbox 1.4.0.
+
+        :returns: True if the PID locks, False otherwise
+        """
+        response = self.txrx_txt('PID:IN{}:OUT{}:LOCK?'.format(num_in, num_out))
+        return response == "ON"
+
+    # Parameter set selection (rp-lockbox 1.4.0). With an FPGA image without
+    # parameter sets the SCPI server answers these with an error, which the
+    # client sees as a receive timeout (`DeviceError`).
+
+    def set_pset_mode(self, num_in, num_out, mode):
+        """Select which parameter set the specified PID uses (one of `PSET_MODES`): always
+        set 1 ('PSET1') or set 2 ('PSET2'), or the one the level of its digital input
+        selects - set 2 while the input is high ('HIGH2') or set 1 while it is high
+        ('HIGH1')."""
+        if mode not in self.PSET_MODES:
+            raise DeviceError(
+                f'Invalid parameter set mode {mode!r} (one of {", ".join(self.PSET_MODES)})')
+        self.tx_txt('PID:IN{}:OUT{}:PSET:MODE {}'.format(num_in, num_out, mode))
+
+    def get_pset_mode(self, num_in, num_out):
+        """Return the parameter set mode of the specified PID (one of `PSET_MODES`)."""
+        return self.txrx_txt('PID:IN{}:OUT{}:PSET:MODE?'.format(num_in, num_out))
+
+    def set_pset_input(self, num_in, num_out, pin):
+        """Select the digital input (one of `PSET_INPUTS`) whose level selects the
+        parameter set of the specified PID in the modes 'HIGH2' and 'HIGH1'."""
+        if pin not in self.PSET_INPUTS:
+            raise DeviceError(
+                f'Invalid parameter set input {pin!r} (one of {", ".join(self.PSET_INPUTS)})')
+        self.tx_txt('PID:IN{}:OUT{}:PSET:INP {}'.format(num_in, num_out, pin))
+
+    def get_pset_input(self, num_in, num_out):
+        """Return the digital input that selects the parameter set of the specified PID
+        (one of `PSET_INPUTS`)."""
+        return self.txrx_txt('PID:IN{}:OUT{}:PSET:INP?'.format(num_in, num_out))
+
+    def get_active_pset(self, num_in, num_out):
+        """Return the parameter set the specified PID uses at this moment.
+
+        :returns: 1 or 2
+        """
+        query = 'PID:IN{}:OUT{}:PSET:ACT?'.format(num_in, num_out)
+        response = self.txrx_txt(query)
+        if response not in ('PSET1', 'PSET2'):
+            raise DeviceError(
+                f'{query}: unexpected reply {response!r} (the FPGA image may predate the'
+                f' parameter sets)')
+        return int(response[-1])
+
+    def copy_pset(self, num_in, num_out, from_pset):
+        """Copy the setpoint, the gains and the lock window of parameter set `from_pset`
+        of the specified PID into its other set (not the holdoff)."""
+        if from_pset not in self.PSETS:
+            raise DeviceError(f'Invalid parameter set {from_pset!r} (1 or 2)')
+        self.tx_txt('PID:IN{}:OUT{}:PSET:COPY PSET{}'.format(num_in, num_out, from_pset))
+
+    def get_counters(self, num_in, num_out):
+        """Return the FPGA's event counters of the specified PID since the FPGA was
+        loaded, as a dict with the keys of `COUNTER_FIELDS`: parameter set switches,
+        holdoffs during which the relock input went outside the lock window, holdoffs that ended
+        with it outside, and every change of the lock status from locked to unlocked while
+        the hold is off (unmerged: the lockbox monitor's count merges the changes into lock
+        drops). They wrap around at 2^32: take the difference between polls. They need
+        rp-lockbox 1.4.0, not the lockbox monitor."""
+        query = 'PID:IN{}:OUT{}:COUNT?'.format(num_in, num_out)
+        return self._parse_fields(
+            query, self.txrx_txt(query), self.COUNTER_FIELDS,
+            hint='the FPGA image may predate the event counters')
 
     def set_output_minimum(self, num_out, minimum):
         """Set the minimum output voltage for the specified channel.
@@ -520,15 +653,14 @@ class RPLockbox(dev_generic.Device):
     #: 65536 (0.85 kHz)
     STATS_DECIMATIONS = (64, 1024, 8192, 65536)
 
-    def _parse_fields(self, query, response, fields):
+    def _parse_fields(self, query, response, fields,
+                      hint='the lockbox monitor service may not be running'):
         """The comma-separated `response` to `query` as a dict per `fields`
-        ((name, type) pairs); an empty or short reply is the monitor's
-        error."""
+        ((name, type) pairs); an empty or short reply is the lockbox's error,
+        reported with `hint`, its likeliest cause."""
         parts = response.split(',') if response else []
         if len(parts) != len(fields):
-            raise DeviceError(
-                f'{query}: unexpected reply {response!r} (the lockbox monitor service may not be'
-                f' running)')
+            raise DeviceError(f'{query}: unexpected reply {response!r} ({hint})')
         values = {}
         for (name, kind), part in zip(fields, parts):
             values[name] = kind(int(part)) if kind is bool else kind(part)
@@ -551,6 +683,17 @@ class RPLockbox(dev_generic.Device):
         (monotonic: take the difference between polls)."""
         query = f'PID:IN{num_in}:OUT{num_out}:UNL:COUN?'
         return self._parse_fields(query, self.txrx_txt(query), (('count', int),))['count']
+
+    def get_short_unlock_count(self, num_in, num_out):
+        """Return how many of the specified PID's lock drops since the lockbox monitor
+        started fell between two of the monitor's polls (monotonic: take the
+        difference between polls). The monitor learns of them from the FPGA's unlock
+        counter, so they need rp-lockbox 1.4.0; included in `get_unlock_count`."""
+        query = f'PID:IN{num_in}:OUT{num_out}:UNL:SHOR?'
+        return self._parse_fields(
+            query, self.txrx_txt(query), (('count', int),),
+            hint='the lockbox monitor service may not be running, or the FPGA image may'
+                 ' predate the event counters')['count']
 
     def get_unlocked_time(self, num_in, num_out):
         """Return the time (in s) the specified PID spent in lock drops since
