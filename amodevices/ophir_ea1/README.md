@@ -24,12 +24,17 @@ HTTP, which this driver does not use.
   `*STARTED` and then pushes one line per measured pulse,
   `*<pulse index> <timestamp us> <energy J>`. The index counts every pulse
   the adapter measured (a gap means pulses that never reached the host), the
-  timestamp is the adapter's own clock at 1 us resolution; both are 32-bit
-  counters that wrap (the timestamp every 71.6 min) and are unwrapped by the
-  driver within a stream session; the timestamp with the host clock as the
-  guide, because a pause longer than half the wrap period that straddles a
-  wrap would otherwise read as a step back of up to 36 min (only a counter
-  reset on the adapter still shows as a jump). `$CS 1` stops the
+  timestamp is the adapter's own clock at 1 us resolution. Both counters
+  wrap (user manual Rev 1.21-1, p. 55; its revision history corrects the
+  2^32 of earlier revisions, and its example line still says 2^32): the
+  timestamp runs to 2^24 - 1 us and cycles to zero, every 16.78 s (observed
+  with firmware EA1.17); the index runs to 2^31 - 1 and then, up to
+  firmware 1.17, on to -2^31 and up again (per the manual). The driver
+  unwraps both within a stream session
+  (`StreamCounters`): the index by its small forward step modulo 2^31, the
+  timestamp with the host clock as the guide, because a laser pause can
+  straddle any number of 16.78 s wraps (only a counter reset on the adapter
+  still shows as a jump). `$CS 1` stops the
   stream (`*STOPPED`, possibly after further pulse lines), and so does any
   other command: settings are read or changed between streams only, and
   `_query()` refuses to run while a stream is up.
@@ -118,10 +123,11 @@ server with automatic reconnection recovers on its own after that; a
 `$RE` reset through the HTTP interface (`http://<ip>/?COMMAND=%24re`) is
 the untested way to shorten it.
 
-Not yet seen, because only a firing laser can show them (run `test.py` per
-its docstring the first day it does): the per-pulse line itself, how an
-over-range pulse appears in mode 3 (a third token `OVER` is assumed), whether
-the index and the timestamp continue across a stream restart, whether pulses
+Seen with a firing laser: the per-pulse line as documented, the index
+advancing by one per pulse, and the timestamp's 2^24 us wrap. Not yet
+seen (`test.py` checks them, see its docstring): how an over-range pulse
+appears in mode 3 (a third token `OVER` is assumed), whether the index and
+the timestamp continue across a stream restart, whether pulses
 fired while the stream was stopped are reported on restart, and whether an
 adapter that lost its client mid-stream keeps pushing pulses into the next
 connection (`connect` bounds its banner wait and sends `$CS 1` regardless).

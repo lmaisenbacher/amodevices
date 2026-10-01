@@ -244,17 +244,28 @@ def test_parse_pulse_line():
     assert ea1.parse_pulse_line('2222 33333 1.234E-1') == (
         2222, 33333, pytest.approx(0.1234), 'ok')
     assert ea1.parse_pulse_line('2 1500 OVER') == (2, 1500, None, 'overexposed')
-    for body in ('STOPPED', '1 2', '1 2 3 4', 'a b 1.0', '-1 2 1.0'):
+    # Firmware up to 1.17 continues the index at -2**31
+    assert ea1.parse_pulse_line('-2147483648 2 1.0') == (
+        -2147483648, 2, 1.0, 'ok')
+    for body in ('STOPPED', '1 2', '1 2 3 4', 'a b 1.0', '1 -2 1.0'):
         with pytest.raises(ValueError):
             ea1.parse_pulse_line(body)
 
 
-def test_unwrap32():
-    assert ea1.unwrap32(0, 4294967295, 0) == (4294967296, 1)
-    assert ea1.unwrap32(500, 4294967000, 1) == (500 + 2 * 2 ** 32, 2)
+def test_unwrap_index():
+    # Firmware up to 1.17: 2**31 - 1, then -2**31 and up to -1, then 0
+    assert ea1.unwrap_index(-2 ** 31, 2 ** 31 - 1, 2 ** 31 - 1) == 2 ** 31
+    assert ea1.unwrap_index(0, -1, 2 ** 32 - 1) == 2 ** 32
+    # The manual: back to zero after 2**31 - 1
+    assert ea1.unwrap_index(0, 2 ** 31 - 1, 2 ** 31 - 1) == 2 ** 31
+    # A 32-bit unsigned counter
+    assert ea1.unwrap_index(2, 2 ** 32 - 1, 5 * 2 ** 32 - 1) == 5 * 2 ** 32 + 2
+    # An index gap (missed pulses) is a forward step
+    assert ea1.unwrap_index(110, 100, 1100) == 1110
     # A small step backwards is a counter reset, not a wrap
-    assert ea1.unwrap32(3, 10, 0) == (3, 0)
-    assert ea1.unwrap32(7, None, 0) == (7, 0)
+    assert ea1.unwrap_index(3, 10, 10) == 3
+    assert ea1.unwrap_index(7, None, None) == 7
+    assert ea1.unwrap_index(-5, None, None) == 2 ** 32 - 5
 
 
 def test_strip_iac():
@@ -454,15 +465,33 @@ def test_connect_ends_its_banner_wait_under_a_running_stream(monkeypatch):
 
 
 def test_timestamp_unwrap_follows_the_host_clock_across_a_long_gap():
-    # A plain wrap 100 ms after the last pulse
-    assert ea1.unwrap32_timed(500, 4294967000, 1000.0, 1000.1) == 4294967796
-    # A 45 min pause straddling the wrap: the raw value steps back by
-    # less than half the range, which is no reset of the counter
-    assert ea1.unwrap32_timed(2405032704, 4000000000, 1000.0, 3700.0) == (
+    # The 24-bit wrap 100 ms after the last pulse
+    assert ea1.unwrap_timestamp(100, 16777100, 1000.0, 1000.1) == 2 ** 24 + 100
+    # A 40 s pause straddling two wraps
+    assert ea1.unwrap_timestamp(
+        41000000 - 2 * 2 ** 24, 1000000, 1000.0, 1040.0) == 41000000
+    # A counter of 32 bits unwraps the same way: a plain wrap, and a
+    # 45 min pause straddling the wrap
+    assert ea1.unwrap_timestamp(500, 4294967000, 1000.0, 1000.1) == 4294967796
+    assert ea1.unwrap_timestamp(2405032704, 4000000000, 1000.0, 3700.0) == (
         2405032704 + 2 ** 32)
-    # A genuine reset after a minute shows as a backwards jump
-    assert ea1.unwrap32_timed(5, 1000000000, 1000.0, 1060.0) == 5
-    assert ea1.unwrap32_timed(7, None, None, 1000.0) == 7
+    # A line that arrives 2 s late (a stalled host) still unwraps
+    assert ea1.unwrap_timestamp(100, 16777000, 1000.0, 1002.1) == 2 ** 24 + 100
+    # A genuine reset after a minute misses the host clock's advance by
+    # more than the tolerance (here 8 s) and shows as a backwards jump
+    assert ea1.unwrap_timestamp(11000000, 1000000000, 1000.0, 1060.0) == 11000000
+    assert ea1.unwrap_timestamp(7, None, None, 1000.0) == 7
+
+
+def test_stream_unwraps_a_timestamp_wrap_and_an_index_overflow():
+    dev, fake = connected()
+    dev.start_stream()
+    fake.push(b'*2147483646 16777000 1.0E-3\r\n*2147483647 100 1.0E-3\r\n'
+              b'*-2147483648 100100 1.0E-3\r\n')
+    pulses = drain_stream(dev)
+    assert [p.index for p in pulses] == [2 ** 31 - 2, 2 ** 31 - 1, 2 ** 31]
+    assert [p.timestamp_us for p in pulses] == [
+        16777000, 2 ** 24 + 100, 2 ** 24 + 100100]
 
 
 def test_stream_timestamps_use_the_receive_time_as_the_guide():

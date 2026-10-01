@@ -19,11 +19,16 @@ below was checked against a live adapter, firmware EA1.17):
   ``*STARTED`` and then PUSHES one line per measured pulse,
   ``*<pulse index> <timestamp us> <energy J>``. The index counts every
   pulse the adapter measured (a gap = pulses that never reached the
-  host), the timestamp is the adapter's own clock at 1 us resolution;
-  both are 32-bit counters that wrap (the timestamp every 71.6 min) and
-  are UNWRAPPED here (the timestamp with the host clock as the guide, so
-  a pause longer than half the wrap period cannot mislead it); only a
-  counter reset on the adapter still shows as a jump. ``$CS 1`` stops the stream
+  host), the timestamp is the adapter's own clock at 1 us resolution.
+  Both counters wrap (user manual Rev 1.21-1, p. 55, whose revision
+  history corrects the 2^32 of earlier revisions; its example line still
+  says 2^32): the timestamp runs to 2^24 - 1 us and cycles to zero, every
+  16.78 s (observed with firmware EA1.17); the index runs to 2^31 - 1
+  and then, up to firmware 1.17, on to -2^31 and up again (per the
+  manual). `StreamCounters` UNWRAPS both
+  (the timestamp with the host clock as the guide, so a pause of any
+  number of wrap periods cannot mislead it); only a counter reset on the
+  adapter still shows as a jump. ``$CS 1`` stops the stream
   (``*STOPPED``, possibly interleaved with pulse lines), and so does ANY
   other command: settings are read or changed between streams only.
 - The polled readout (``$EF`` new-value flag, cleared by ``$SE``) is the
@@ -48,7 +53,6 @@ import socket
 import threading
 import time
 from collections import namedtuple
-from types import SimpleNamespace
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
@@ -84,8 +88,15 @@ STATUS_WORDS = (STATUS_OK, STATUS_OVER, STATUS_UNPARSEABLE)
 #: Telnet "interpret as command" byte; an IAC is followed by two bytes
 IAC = 0xFF
 _IAC_LEN = 3
-_WRAP = 2 ** 32
-_HALF_WRAP = 2 ** 31
+#: The stream's counters cycle: the timestamp through 2**24 us, the pulse
+#: index through 2**31 values (user manual Rev 1.21-1, p. 55)
+TIMESTAMP_WRAP = 2 ** 24
+INDEX_WRAP = 2 ** 31
+#: How far (s) an unwrapped timestamp may miss the host clock's advance
+#: since the previous line before the step counts as a counter reset on
+#: the adapter rather than a wrap: above any delay a stalled host or
+#: network adds to a line's arrival, below half a wrap period
+TIMESTAMP_TOLERANCE_S = 4.0
 _SI_PREFIXES = {'': 1.0, 'p': 1e-12, 'n': 1e-9, 'u': 1e-6, '\u00b5': 1e-6,
                 'm': 1e-3, 'k': 1e3, 'M': 1e6}
 _SI_VALUE_RE = re.compile(
@@ -160,52 +171,89 @@ def parse_pulse_line(body):
     `energy_j` None and `status` `STATUS_OVER` for a third token ``OVER``;
     raises `ValueError` for anything that is not three tokens of that
     shape (which is how ``*STOPPED`` and unforeseen lines are told apart).
+    The index may be negative: firmware up to 1.17 continues at -2**31
+    after 2**31 - 1.
     """
     tokens = body.split()
     if len(tokens) != 3:
         raise ValueError(f'expected three tokens, got {len(tokens)}')
     index = int(tokens[0])
     timestamp_us = int(tokens[1])
-    if index < 0 or timestamp_us < 0:
-        raise ValueError('negative counter')
+    if timestamp_us < 0:
+        raise ValueError('negative timestamp')
     if tokens[2].upper() == 'OVER':
         return index, timestamp_us, None, STATUS_OVER
     return index, timestamp_us, float(tokens[2]), STATUS_OK
 
 
-def unwrap32(raw, last_raw, wraps):
-    """Unwrap a 32-bit counter reading that advances by small steps (the
-    pulse index).
+def unwrap_index(raw, last_raw, last_unwrapped):
+    """Unwrap a pulse index reading.
 
-    A step backwards by more than half the range is a wrap and increments
-    `wraps`; a smaller step backwards is a counter reset on the device and
-    is passed through unchanged (the caller decides what to make of it).
-    Returns ``(unwrapped, wraps)``.
+    The index cycles through 2**31 values: back to zero after 2**31 - 1
+    (the manual), or on to -2**31 and up again (firmware up to 1.17), or,
+    were it a 32-bit unsigned counter, through 2**32. In every case the
+    step from the previous reading, taken modulo 2**31, is the number of
+    pulses measured since, small and forward. A step more than half the
+    range "forward" is a step BACKWARDS, a counter reset on the adapter,
+    and is passed through for the caller to treat as a new epoch, as is
+    the first reading; a negative reading passes as its unsigned 32-bit
+    value. Returns the unwrapped index.
     """
-    if last_raw is not None and raw < last_raw and last_raw - raw > _HALF_WRAP:
-        wraps += 1
-    return raw + wraps * _WRAP, wraps
+    if last_raw is None:
+        return raw % 2 ** 32
+    step = (raw - last_raw) % INDEX_WRAP
+    if step < INDEX_WRAP // 2:
+        return last_unwrapped + step
+    return raw % 2 ** 32
 
 
-def unwrap32_timed(raw, last_unwrapped, last_t_recv, t_recv):
-    """Unwrap a 32-bit timestamp reading (us) with the host clock as the
+def unwrap_timestamp(raw, last_unwrapped, last_t_recv, t_recv):
+    """Unwrap a stream timestamp reading (us) with the host clock as the
     guide.
 
-    The half-range rule of `unwrap32` cannot serve a free-running clock:
-    the counter wraps every 71.6 min, so a laser pause longer than 35.8
-    min that happens to straddle a wrap reads as a small step backwards
-    and the "monotone" timestamp would jump back by up to 36 min. The
-    host clock breaks the tie: of the candidates ``raw + k * 2**32`` the
-    one nearest ``last_unwrapped + (t_recv - last_t_recv)`` is right as
-    long as the two clocks disagree by less than 35.8 min over the gap
-    (days at 100 ppm drift). A counter reset on the device still shows
-    as a jump, forward or backward, for the caller to treat as a new
-    epoch. Returns `raw` for the first reading.
+    The timestamp cycles every 2**24 us (16.78 s), so a laser pause of a
+    few seconds can straddle a wrap and a longer one any number of them:
+    the readings alone cannot tell. The host clock can: of the candidates
+    ``raw + k * 2**24`` the one nearest the previous unwrapped value plus
+    the host clock's advance ``t_recv - last_t_recv`` is right as long as
+    the two clocks drift apart by less than half a period over the gap.
+    A candidate that still misses that advance by more than
+    `TIMESTAMP_TOLERANCE_S` means the counter restarted on the adapter,
+    or a pause long enough for the clocks to drift apart that far: the
+    raw reading is passed through, a jump for the caller to treat as a
+    new epoch. A counter whose range is a multiple of 2**24, 32 bits
+    included, unwraps the same way. Returns `raw` for the first reading.
     """
     if last_unwrapped is None:
         return raw
     expected = last_unwrapped + (t_recv - last_t_recv) * 1e6
-    return raw + round((expected - raw) / _WRAP) * _WRAP
+    unwrapped = raw + round((expected - raw) / TIMESTAMP_WRAP) * TIMESTAMP_WRAP
+    if abs(unwrapped - expected) > TIMESTAMP_TOLERANCE_S * 1e6:
+        return raw
+    return unwrapped
+
+
+class StreamCounters:
+    """Unwraps the index and the timestamp of one stream session's pulse
+    lines (`unwrap_index`, `unwrap_timestamp`), in arrival order; a new
+    session starts a new instance. Public, so that a simulated adapter
+    can unwrap its synthetic counters the same way."""
+
+    def __init__(self):
+        self.last_raw_index = None
+        self.last_index = None
+        self.last_timestamp_us = None
+        self.last_t_recv = None
+
+    def unwrap(self, raw_index, raw_timestamp_us, t_recv):
+        """``(index, timestamp_us)`` of a line with these raw counters,
+        received at host time `t_recv`."""
+        index = unwrap_index(raw_index, self.last_raw_index, self.last_index)
+        timestamp_us = unwrap_timestamp(
+            raw_timestamp_us, self.last_timestamp_us, self.last_t_recv, t_recv)
+        self.last_raw_index, self.last_index = raw_index, index
+        self.last_timestamp_us, self.last_t_recv = timestamp_us, t_recv
+        return index, timestamp_us
 
 
 def parse_si_value(token, unit):
@@ -326,7 +374,7 @@ class OphirEA1(dev_generic.Device):
         self._iac_tail = b''
         self._t_last_recv = 0.0
         self._streaming = False
-        self._unwrap = self._fresh_unwrap_state()
+        self._counters = StreamCounters()
         self.firmware_version = ''
         self.adapter_type = ''
         self.adapter_serial = ''
@@ -342,10 +390,6 @@ class OphirEA1(dev_generic.Device):
         except Exception:
             pass
 
-    @staticmethod
-    def _fresh_unwrap_state():
-        return SimpleNamespace(last_index=None, index_wraps=0,
-                               last_ts=None, last_t_recv=None)
 
     # -- connection --------------------------------------------------------
 
@@ -730,7 +774,7 @@ class OphirEA1(dev_generic.Device):
                 raise DeviceError(
                     f'{self.device["Device"]}: Unexpected reply to $CS'
                     f' {STREAM_MODE_PER_PULSE}: {body!r}')
-            self._unwrap = self._fresh_unwrap_state()
+            self._counters = StreamCounters()
             self._streaming = True
 
     def read_pulses(self, timeout_s):
@@ -759,14 +803,7 @@ class OphirEA1(dev_generic.Device):
                 raw_index, raw_ts, energy_j, status = parse_pulse_line(line[1:])
             except ValueError:
                 return Pulse(None, None, None, STATUS_UNPARSEABLE, t_recv, line)
-            state = self._unwrap
-            index, state.index_wraps = unwrap32(
-                raw_index, state.last_index, state.index_wraps)
-            state.last_index = raw_index
-            timestamp_us = unwrap32_timed(
-                raw_ts, state.last_ts, state.last_t_recv, t_recv)
-            state.last_ts = timestamp_us
-            state.last_t_recv = t_recv
+            index, timestamp_us = self._counters.unwrap(raw_index, raw_ts, t_recv)
             return Pulse(index, timestamp_us, energy_j, status, t_recv, line)
         return Pulse(None, None, None, STATUS_UNPARSEABLE, t_recv, line)
 
