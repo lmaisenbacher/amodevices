@@ -3,8 +3,12 @@
 a LAN address is opened without enumerating the VISA library's
 resources (NI-VISA's enumeration probes the network — two minutes on the
 DAQ PC on 2026-09-21 while an instrument held a stale link, with the
-server's web UI unreachable meanwhile), a USB address still is, and a
-failed open raises `DeviceError`. No VISA library needed.
+server's web UI unreachable meanwhile), a USB address still is (its own
+interface only), and a failed open raises `DeviceError`. The device
+dict's 'VISABackend' selects the PyVISA backend, and a backend's own
+spelling of a USB resource (pyvisa-py lists decimal IDs and the USB
+interface number) still counts as the configured address. No VISA
+library needed.
 """
 
 import pytest
@@ -35,17 +39,21 @@ class FakeResourceManager:
     """Counts enumerations; opens any address in `known`."""
     instances = []
 
-    def __init__(self):
+    def __init__(self, backend=None):
+        self.backend = backend
         self.enumerations = 0
+        self.queries = []
         self.known = {
             'USB0::0x1AB1::0x0960::DSA8A1234::INSTR': 'RIGOL,DSA815,1,1',
             'TCPIP0::192.168.50.22::inst0::INSTR': 'Rigol Technologies,RSA3030,1,1',
         }
         FakeResourceManager.instances.append(self)
 
-    def list_resources(self):
+    def list_resources(self, query='?*::INSTR'):
         self.enumerations += 1
-        return tuple(self.known)
+        self.queries.append(query)
+        prefix = query.split('?')[0]
+        return tuple(name for name in self.known if name.startswith(prefix))
 
     def open_resource(self, address):
         if address not in self.known:
@@ -95,3 +103,66 @@ def test_an_unreachable_lan_address_raises_at_once(fake_visa):
     (rm,) = fake_visa.instances
     assert rm.enumerations == 0
     assert dev.visa_resource is None and not dev.device_connected
+
+
+def test_only_the_address_interface_is_enumerated(fake_visa):
+    dev = _device('USB0::0x1AB1::0x0960::DSA8A1234::INSTR')
+    dev.init_visa()
+    (rm,) = fake_visa.instances
+    assert rm.queries == ['USB?*']
+    assert rm.backend is None                 # PyVISA's default library
+
+
+def test_the_backend_setting_reaches_the_resource_manager(fake_visa):
+    dev = _device('USB0::0x1AB1::0x0960::DSA8A1234::INSTR', VISABackend='@py')
+    assert dev.visa_backend() == '@py'
+    dev.init_visa()
+    (rm,) = fake_visa.instances
+    assert rm.backend == '@py'
+    assert dev.device_connected
+
+
+def test_a_backend_spelling_of_the_usb_address_counts_as_enumerated(
+        monkeypatch, caplog):
+    # pyvisa-py lists 'USB0::4883::32888::P0035092::0::INSTR' for the
+    # usual 'USB0::0x1313::0x8078::P0035092::INSTR'
+    def fake(backend=None):
+        rm = FakeResourceManager(backend)
+        rm.known = {'USB0::4883::32888::P0035092::0::INSTR': 'Thorlabs,PM100D,P0035092,2.8.1'}
+        rm.open_resource = lambda address: FakeResource('Thorlabs,PM100D,P0035092,2.8.1')
+        return rm
+    monkeypatch.setattr(dev_generic.pyvisa, 'ResourceManager', fake)
+    dev = _device('USB0::0x1313::0x8078::P0035092::INSTR', VISABackend='@py')
+    with caplog.at_level('INFO'):
+        dev.init_visa()
+    assert 'was found' in caplog.text
+    assert 'is enumerated' not in caplog.text
+
+
+def test_visa_resource_keys():
+    key = dev_generic.visa_resource_key
+    assert (key('USB0::0x1313::0x8078::P0035092::INSTR')
+            == key('USB0::4883::32888::P0035092::0::INSTR')
+            == key('USB::0x1313::0x8078::P0035092::INSTR'))
+    assert (key('USB0::0x1313::0x8078::P0035092::INSTR')
+            != key('USB0::0x1313::0x8078::P0035093::INSTR'))
+    assert (key('USB0::0x1313::0x8078::P0035092::INSTR')
+            != key('USB0::0x1313::0x8078::P0035092::RAW'))
+    assert key('ASRL3::INSTR') == 'ASRL3::INSTR'
+    assert key('not a resource') == 'NOT A RESOURCE'
+
+
+def test_a_usb_error_becomes_a_device_error(fake_visa):
+    dev = _device('USB0::0x1AB1::0x0960::DSA8A1234::INSTR')
+    dev.init_visa()
+
+    def gone(command):
+        raise OSError(19, 'No such device (it may have been disconnected)')
+
+    dev.visa_resource.query = gone
+    dev.visa_resource.write = gone
+    with pytest.raises(DeviceError, match='USB error'):
+        dev.visa_query('MEAS:POW?')
+    assert not dev.device_connected
+    with pytest.raises(DeviceError, match='USB error'):
+        dev.visa_write('INIT')
