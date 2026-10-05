@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.35',
+    version='0.1.36',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -30,6 +30,7 @@ setup(
         'amodevices.srs_sim922',
         'amodevices.flir_boson',
         'amodevices.rigol_dg900pro',
+        'amodevices.rigol_dg1000z',
         'amodevices.siglent_ssa3000xplus',
         'amodevices.rp_lockbox',
         'amodevices.ni_daq',
