@@ -15,6 +15,7 @@ with a DG1062Z, firmware 03.01.12.
 """
 
 import logging
+import time
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 #: The burst idle levels: the waveform's first point, its maximum, its
 #: center, its minimum
 IDLE_LEVELS = ('FPT', 'TOP', 'CENTER', 'BOTTOM')
+#: After a setting the generator takes a while to put it on the output,
+#: and a further message in that time can drop it there while it still
+#: reads back (see the README): the wait (s) after a setting before the
+#: next message
+SETTLE_S = 0.1
 
 
 class RigolDG1000Z(dev_generic.Device):
@@ -32,11 +38,18 @@ class RigolDG1000Z(dev_generic.Device):
     Every setting is sent as a message of its own and confirmed by
     querying it back (`set`): two commands in one message hung the
     generator, and '*OPC?' does not answer while a triggered burst is
-    armed. `check_errors` drains the error queue after a group of
-    settings.
+    armed. The next message waits until `SETTLE_S` after a setting
+    (`set`, `query`), so the setting reaches the output. `check_errors`
+    drains the error queue after a group of settings. Messages sent
+    with `visa_write` or `visa_query` directly do not wait.
     """
 
     CHANNELS = (1, 2)
+    #: The time of the last setting (`set`)
+    _last_setting_t = None
+    #: The clock and the sleep of the settle wait (seams for tests)
+    _clock = staticmethod(time.monotonic)
+    _sleep = staticmethod(time.sleep)
 
     def __init__(self, device):
         """Open the connection to the generator described by `device`
@@ -58,18 +71,40 @@ class RigolDG1000Z(dev_generic.Device):
 
     # ── messages ─────────────────────────────────────────────────────
 
+    def _settle(self):
+        """Wait until `SETTLE_S` after the last setting."""
+        if self._last_setting_t is not None:
+            wait = self._last_setting_t + SETTLE_S - self._clock()
+            if wait > 0:
+                self._sleep(wait)
+
+    def _write_setting(self, command, readback):
+        """Send the setting `command` after the settle wait, then the
+        query `readback`; returns its reply."""
+        self._settle()
+        self.visa_write(command)
+        reply = self.visa_query(readback)
+        self._last_setting_t = self._clock()
+        return reply
+
     def set(self, command):
         """Send the setting `command` (str, e.g. ':SOUR1:BURS ON') and
         query it back (its header with '?'), so the next message is sent
-        only after the generator took this one."""
-        self.visa_write(command)
-        return self.visa_query(command.split(' ')[0] + '?')
+        only after the generator took this one; and not before `SETTLE_S`
+        after the setting before."""
+        return self._write_setting(command, command.split(' ')[0] + '?')
+
+    def query(self, command):
+        """Send the query `command` (str, e.g. ':SOUR2:FUNC?') and return
+        the reply, not before `SETTLE_S` after the last setting."""
+        self._settle()
+        return self.visa_query(command)
 
     @property
     def system_error(self):
         """The next entry of the error queue as (code, message); code 0
         when the queue is empty."""
-        reply = self.visa_query(':SYST:ERR?')
+        reply = self.query(':SYST:ERR?')
         code, _, message = reply.partition(',')
         return self.to_int(code), message.strip().strip('"')
 
@@ -123,9 +158,10 @@ class RigolDG1000Z(dev_generic.Device):
         self.set(f':SOUR{n}:BURS OFF')
         self.set(f':OUTP{n}:IMP {load}')
         # Function, frequency, amplitude and offset in one command
-        self.visa_write(f':SOUR{n}:APPL:PULS {1. / period_s:.9g},'
-                        f'{high_v - low_v:.6g},{(high_v + low_v) / 2:.6g},0')
-        self.visa_query(f':SOUR{n}:FUNC?')
+        self._write_setting(
+            f':SOUR{n}:APPL:PULS {1. / period_s:.9g},'
+            f'{high_v - low_v:.6g},{(high_v + low_v) / 2:.6g},0',
+            f':SOUR{n}:FUNC?')
         for command in (
                 f':SOUR{n}:PULS:HOLD WIDT',
                 f':SOUR{n}:FUNC:PULS:WIDT {width_s:.9g}',
@@ -149,7 +185,7 @@ class RigolDG1000Z(dev_generic.Device):
     def pulse_width(self, channel):
         """The pulse width of `channel` (s)."""
         n = self._channel(channel)
-        return self.to_float(self.visa_query(f':SOUR{n}:FUNC:PULS:WIDT?'))
+        return self.to_float(self.query(f':SOUR{n}:FUNC:PULS:WIDT?'))
 
     def set_pulse_width(self, channel, width_s, period_s):
         """Set the pulse width (s) and the waveform period (s) of
@@ -168,8 +204,13 @@ class RigolDG1000Z(dev_generic.Device):
     def levels(self, channel):
         """The (low, high) levels of `channel` (V)."""
         n = self._channel(channel)
-        return (self.to_float(self.visa_query(f':SOUR{n}:VOLT:LOW?')),
-                self.to_float(self.visa_query(f':SOUR{n}:VOLT:HIGH?')))
+        return (self.to_float(self.query(f':SOUR{n}:VOLT:LOW?')),
+                self.to_float(self.query(f':SOUR{n}:VOLT:HIGH?')))
+
+    def function(self, channel):
+        """The waveform `channel` plays (str, e.g. 'PULSE', 'SIN')."""
+        n = self._channel(channel)
+        return self.query(f':SOUR{n}:FUNC?').strip().upper()
 
     def set_levels(self, channel, low_v, high_v):
         """Set the low and high levels of `channel` (V), in the order

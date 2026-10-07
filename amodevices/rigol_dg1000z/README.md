@@ -43,7 +43,8 @@ gen.check_errors()                     # DeviceError listing any queued errors
 gen.close()
 ```
 
-`set(command)` sends any setting and queries it back.
+`set(command)` sends any setting and queries it back; `query(command)` sends
+a query. Both first wait until `SETTLE_S` after the last setting (see below).
 
 ## Behavior
 
@@ -51,6 +52,17 @@ Observed with a DG1062Z, firmware 03.01.12:
 
 - Two commands in one message (joined by `;`) hang the generator; the driver
   sends one per message and queries each setting back before the next.
+- A setting reaches the output some time after the generator has taken the
+  command and answered its read-back. A further message within that time can
+  drop it from the output, while it still reads back as set: a command to the
+  other channel (then only the channel addressed last follows), or the next
+  command of a burst set-up (`BURS ON` followed at once by `OUTP ON` left the
+  channel playing continuously). Sending an unchanged value again does not
+  repair it; a real change of the setting does. Over LAN (VXI-11), where the
+  read-back returns within milliseconds, the other channel's command 30 ms
+  after the read-back was too early and 50 ms late enough (also seen with a
+  DG1022Z, same firmware); over USB the messages themselves take longer. The
+  driver waits `SETTLE_S` (0.1 s) after a setting before the next message.
 - `*OPC?` does not answer while a triggered burst is armed.
 - A pulse's period and width are coupled through `PULS:HOLD`: a channel holds
   whichever of width and duty cycle it held last. Holding the duty cycle, a

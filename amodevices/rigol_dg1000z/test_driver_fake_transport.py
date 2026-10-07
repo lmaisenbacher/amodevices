@@ -8,7 +8,7 @@ pytest.
 import pytest
 
 from amodevices.dev_exceptions import DeviceError
-from amodevices.rigol_dg1000z.rigol_dg1000z import RigolDG1000Z
+from amodevices.rigol_dg1000z.rigol_dg1000z import SETTLE_S, RigolDG1000Z
 
 
 class FakeDG1000Z(RigolDG1000Z):
@@ -24,7 +24,15 @@ class FakeDG1000Z(RigolDG1000Z):
                        ':SOUR2:VOLT:LOW': '2.000000E+00',
                        ':SOUR2:VOLT:HIGH': '5.000000E+00'}
         self._errors = list(errors)
+        # A clock that only the channel wait's sleeps (and the test) move
+        self.now, self.slept = 0., []
+        self._clock = lambda: self.now
+        self._sleep = self._fake_sleep
         super().__init__({'Device': 'Fake DG1062Z', 'Address': 'FAKE::INSTR'})
+
+    def _fake_sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
 
     def init_visa(self):
         self.device_present = True
@@ -108,6 +116,33 @@ def test_idle_and_output():
     gen.set_output(2, False)
     assert gen.writes == [':SOUR1:BURS:IDLE TOP', ':OUTP2 OFF']
     assert gen.queries[-2:] == [':SOUR1:BURS:IDLE?', ':OUTP2?']
+
+
+def test_the_next_message_waits_after_a_setting():
+    # A setting reaches the output only a while after its read-back, and
+    # a further message in that time can drop it there
+    gen = FakeDG1000Z()
+    gen.check_errors()                            # nothing set yet
+    gen.set(':SOUR1:BURS:IDLE TOP')
+    assert gen.slept == []
+    gen.now += 0.03
+    gen.set(':SOUR1:BURS ON')                     # waits out the rest
+    assert gen.slept == [pytest.approx(SETTLE_S - 0.03)]
+    gen.levels(2)                                 # a query waits too
+    assert gen.slept[-1] == pytest.approx(SETTLE_S)
+    n = len(gen.slept)
+    gen.levels(2)                                 # no setting since
+    gen.now += 1.
+    gen.set(':OUTP2 ON')                          # long after: no wait
+    assert len(gen.slept) == n
+    # The read-back itself follows its command at once
+    assert gen.queries[-1] == ':OUTP2?'
+    gen.now += 1.
+    n = len(gen.slept)
+    gen.configure_triggered_pulse(1, 10e-3, 10.5e-3, 0., 3.)
+    # Each of its 16 settings but the first waited the full time
+    assert gen.slept[n:] == [pytest.approx(SETTLE_S)] * 15
+    assert gen.function(2) == '1'
 
 
 def test_error_queue():
