@@ -242,3 +242,37 @@ class RigolRSA3000(dev_generic.Device):
         (in measurement state).
         """
         return self.visa_write(':INITiate:IMMediate')
+
+    @property
+    def trigger_source(self):
+        """
+        Get the trigger source of the sweep (str): 'IMM' (free run),
+        'EXT1' (rear [TRIGGER IN]), 'EXT2' (rear [TRIGGER IN/OUT] set to
+        input), 'VID' (video), ...
+        """
+        return self.visa_query(':TRIGger:SEQuence:SOURce?').strip()
+
+    @trigger_source.setter
+    def trigger_source(self, source):
+        """
+        Set the trigger source of the sweep to `source` (str):
+        'IMMediate', 'EXTernal1', 'EXTernal2', 'VIDeo', ... With an
+        external source each sweep waits for an edge on that input.
+        """
+        return self.visa_write(f':TRIGger:SEQuence:SOURce {source}')
+
+    def set_external_trigger(self, n=1, rising=True, delay_s=0.):
+        """
+        Set the slope of external trigger `n` (1 or 2; rising edge if
+        `rising`, else falling) and its delay `delay_s` (s; 0 = no
+        delay, the delay switched off), the time from the edge to the
+        start of the sweep.
+        """
+        self.visa_write(
+            f':TRIGger:SEQuence:EXTernal{n:d}:SLOPe '
+            f'{"POSitive" if rising else "NEGative"}')
+        if delay_s > 0:
+            self.visa_write(f':TRIGger:SEQuence:EXTernal{n:d}:DELay {delay_s}')
+            self.visa_write(f':TRIGger:SEQuence:EXTernal{n:d}:DELay:STATe 1')
+        else:
+            self.visa_write(f':TRIGger:SEQuence:EXTernal{n:d}:DELay:STATe 0')

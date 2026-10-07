@@ -37,7 +37,7 @@ Additionally, to run the `NIDAQ` NI DAQ analog input/output you need to install 
 | [`OphirEA1`](amodevices/ophir_ea1/README.md) | Ophir EA-1 Ethernet adapter with an Ophir smart sensor head (PE50BF-DFH-C pyroelectric energy head): settings and per-pulse energy stream | TCP/IP (Telnet) |
 | `RigolDG900Pro` | Rigol DG800 Pro / DG900 Pro function generator: the frequency of each channel | VISA |
 | [`RigolDG1000Z`](amodevices/rigol_dg1000z/README.md) | Rigol DG1000Z series function generator (DG1022Z, DG1032Z, DG1062Z): pulses as externally triggered bursts, levels, edges, burst idle level, outputs | VISA |
-| `RigolRSA3000` | Rigol RSA3000 spectrum analyzer | VISA |
+| `RigolRSA3000` | Rigol RSA3000 spectrum analyzer: swept traces, tracking generator, sweep trigger source and external trigger slope and delay | VISA |
 | `RPLockbox` | Red Pitaya lockbox | TCP/IP (SCPI) |
 | `SiglentSSA3000XPlus` | Siglent SSA3000X Plus spectrum analyzer | VISA |
 | `SRSCTC100` | SRS CTC100 cryogenic temperature controller | Serial |
