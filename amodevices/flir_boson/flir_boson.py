@@ -7,26 +7,57 @@ Created on Tue Oct 10 15:33:26 2023
 Device driver for FLIR Boson thermal camera.
 """
 
+import importlib.util
 import logging
+import sys
 import numpy as np
 import cv2
 from pathlib import Path
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
+from ..vendor_sdk import copy_instruction, find_vendor_sdk, vendor_sdk_dir
 
 logger = logging.getLogger(__name__)
 
-# Import FLIR Boson SDK from subdirectory "SDK_USER_PERMISSIONS".
-# The SDK itself is not part of the repo and must be copied here manually.
-# Tested with Boson 3.0 IDD & SDK. The subdirectory "SDK_USER_PERMISSIONS" must be the one
-# containing "__init__.py".
-# Available at https://www.dropbox.com/scl/fi/t81amkxiaxo11uriez0bm/SDK_USER_PERMISSIONS.zip for
-# Unitrap members.
-try:
-    from . import SDK_USER_PERMISSIONS as fbsdk
-except ImportError:
-    pass
+# The FLIR Boson SDK (tested with Boson 3.0 IDD & SDK) is not part of this
+# package: its license allows no redistribution. The driver needs its folder
+# "SDK_USER_PERMISSIONS", the one containing "__init__.py"; where a lab keeps
+# its copy goes in the device dict's 'VendorSDKSource'. The SDK finds its DLL
+# (FSLP_Files) relative to its own files, so it works from any folder.
+SDK_FOLDER = 'SDK_USER_PERMISSIONS'
+SDK_MODULE = 'amodevices_flir_boson_sdk'
+# Where editable installs kept the SDK before 0.1.39
+LEGACY_DIR = Path(__file__).resolve().parent / SDK_FOLDER
+
+
+def load_sdk(device):
+    """Import the FLIR Boson SDK from the device dict's 'SDKPath', the
+    vendor SDK folder (flir_boson/SDK_USER_PERMISSIONS) or this package's
+    folder (editable installs before 0.1.39); return the SDK module."""
+    if SDK_MODULE in sys.modules:
+        return sys.modules[SDK_MODULE]
+    target = vendor_sdk_dir() / 'flir_boson'
+    sdk_dir = find_vendor_sdk(
+        [device.get('SDKPath'), target / SDK_FOLDER, LEGACY_DIR],
+        ['__init__.py'], 'FLIR Boson SDK',
+        copy_instruction(
+            device, f'the folder \'{SDK_FOLDER}\'', target,
+            f'Copy the SDK\'s folder \'{SDK_FOLDER}\' to {target}, or set '
+            f'\'SDKPath\' in the device dict.'))
+    spec = importlib.util.spec_from_file_location(
+        SDK_MODULE, sdk_dir / '__init__.py', submodule_search_locations=[str(sdk_dir)])
+    sdk = importlib.util.module_from_spec(spec)
+    sys.modules[SDK_MODULE] = sdk
+    try:
+        spec.loader.exec_module(sdk)
+    except Exception as e:
+        del sys.modules[SDK_MODULE]
+        msg = f'FLIR Boson SDK in {sdk_dir} failed to import: {e}'
+        logger.error(msg)
+        raise DeviceError(msg) from e
+    return sdk
+
 
 class FLIRBoson(dev_generic.Device):
     """Device driver for FLIR Boson thermal camera."""
@@ -36,13 +67,7 @@ class FLIRBoson(dev_generic.Device):
         super().__init__(device)
 
         # Initialize the camera
-        if 'fbsdk' not in globals():
-            sdk_path = Path(__file__).parent
-            msg = (
-                f'FLIR Boson SDK not found. Copy the \'SDK_USER_PERMISSIONS\' '
-                f'directory from the SDK into \'{sdk_path}\' to enable this driver.')
-            logger.error(msg)
-            raise DeviceError(msg)
+        fbsdk = load_sdk(device)
         myCam = fbsdk.CamAPI.pyClient(manualport=device['Address'])
         self.myCam = myCam
 

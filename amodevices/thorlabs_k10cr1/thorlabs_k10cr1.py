@@ -15,8 +15,17 @@ import logging
 
 from .. import dev_generic
 from ..dev_exceptions import DeviceError
+from ..vendor_sdk import copy_instruction, find_vendor_sdk, vendor_sdk_dir
 
 logger = logging.getLogger(__name__)
+
+# The Thorlabs Kinesis DLLs the driver loads (the first loads the second
+# from its own folder) and the folder the Kinesis installer puts them in
+KINESIS_DLLS = ('Thorlabs.MotionControl.IntegratedStepperMotors.dll',
+                'Thorlabs.MotionControl.DeviceManager.dll')
+KINESIS_INSTALL_DIR = Path(r'C:\Program Files\Thorlabs\Kinesis')
+# Where editable installs kept the DLLs before 0.1.39
+LEGACY_DIR = Path(__file__).resolve().parent / 'bin'
 
 class TLI_DeviceInfo(ctypes.Structure):
     """Thorlabs Kinesis device information, generated from serial number and USB info block."""
@@ -67,12 +76,23 @@ class ThorlabsK10CR1(dev_generic.Device):
         """Initialize class for device with serial number `serial_number` (int)."""
         super().__init__(device)
 
-        ## Load Thorlabs Kinesis library
-        # Filename of required DLL
-        # (must be in the subdirectory 'bin' of the directory of this script)
-        script_dir = Path(__file__).resolve().parent
-        dll_filename = 'Thorlabs.MotionControl.IntegratedStepperMotors.dll'
-        self.kinesis = ctypes.windll.LoadLibrary(str(Path(script_dir, 'bin', dll_filename)))
+        ## Load Thorlabs Kinesis library: from the device dict's 'KinesisDir',
+        # the vendor SDK folder, the Kinesis installation, or the package's
+        # 'bin' folder (editable installs before 0.1.39)
+        sdk_dir = vendor_sdk_dir() / 'thorlabs_kinesis'
+        kinesis_dir = find_vendor_sdk(
+            [device.get('KinesisDir'), sdk_dir, KINESIS_INSTALL_DIR, LEGACY_DIR],
+            KINESIS_DLLS, 'Thorlabs Kinesis',
+            copy_instruction(
+                device, ' and '.join(KINESIS_DLLS), sdk_dir,
+                'Install Thorlabs Kinesis from thorlabs.com, or set '
+                '\'KinesisDir\' in the device dict.'))
+        try:
+            self.kinesis = ctypes.windll.LoadLibrary(str(kinesis_dir / KINESIS_DLLS[0]))
+        except OSError as e:
+            msg = f'Thorlabs Kinesis: cannot load {kinesis_dir / KINESIS_DLLS[0]}: {e}'
+            logger.error(msg)
+            raise DeviceError(msg) from e
 
         # Callback function
         self.update_callback_func = update_callback_func

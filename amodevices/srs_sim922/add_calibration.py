@@ -10,6 +10,7 @@ Add user calibration for diode temperature sensor for SRS SIM922.
 import numpy as np
 import time
 import logging
+from pathlib import Path
 from amodevices import SRSSIM922
 from amodevices.dev_exceptions import DeviceError
 
@@ -52,7 +53,7 @@ try:
     ## Add points to calibration curve
     # Load calibration curve from file
     # Calibration curve for Lake Shore DT-600 sensors
-    data_ = np.loadtxt('dt600.txt', skiprows=3)
+    data_ = np.loadtxt(Path(__file__).resolve().parent / 'dt600.txt', skiprows=3)
     # Sort data by increasing sensor voltage
     data = data_[np.argsort(data_[:, 1]), :]
     for i in range(len(data)):

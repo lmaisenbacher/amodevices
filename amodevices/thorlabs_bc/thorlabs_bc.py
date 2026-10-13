@@ -12,6 +12,7 @@ Thorlabs Beam >9.1 must be installed for the necessary DLLs to be present in the
 import numpy as np
 import logging
 import os
+from pathlib import Path
 from ctypes import (
     c_uint32, c_uint16, c_uint8, byref, create_string_buffer, c_bool, c_int16,
     c_double, c_ubyte, c_ushort)
@@ -20,6 +21,9 @@ from .. import dev_generic
 from ..dev_exceptions import DeviceError
 
 logger = logging.getLogger(__name__)
+
+# The folder Thorlabs Beam installs TLBC2_64.dll and its VISA DLLs into
+BEAM_DLL_DIR = Path(r'C:\Program Files\IVI Foundation\VISA\Win64\Bin')
 
 # Import Thorlabs TLBC2 module from file "amodevices/thorlabs_bc/TLBC2.py".
 # Available at https://github.com/Thorlabs/Light_Analysis_Examples/blob/main/Python/Thorlabs%20BC207%20Beam%20Profiler/TLBC2.py
@@ -36,8 +40,12 @@ class ThorlabsBC(dev_generic.Device):
         """Initialize class for device `device` (dict)."""
         super().__init__(device)
 
-        # Add Thorlabs VISA DLL directory for 64-bit Python
-        os.add_dll_directory(r'C:\Program Files\IVI Foundation\VISA\Win64\Bin')
+        # Folders searched for TLBC2_64.dll and the VISA DLLs it uses: the
+        # device dict's 'DLLDir' and the VISA folder Thorlabs Beam installs into
+        # (64-bit Python); a folder that does not exist is skipped
+        for dll_dir in (device.get('DLLDir'), BEAM_DLL_DIR):
+            if dll_dir and Path(dll_dir).is_dir():
+                os.add_dll_directory(str(dll_dir))
 
         if 'TLBC2' not in globals():
             msg = (
@@ -47,7 +55,14 @@ class ThorlabsBC(dev_generic.Device):
             logger.error(msg)
             raise DeviceError(msg)
         # Init camera instance
-        bc2 = TLBC2.TLBC2()
+        try:
+            bc2 = TLBC2.TLBC2()
+        except OSError as e:
+            msg = (
+                f'Thorlabs Beam: cannot load TLBC2_64.dll ({e}). Install Thorlabs Beam 9.1 '
+                f'or later, or set \'DLLDir\' in the device dict.')
+            logger.error(msg)
+            raise DeviceError(msg) from e
         self.bc2 = bc2
 
         # Look for available devices

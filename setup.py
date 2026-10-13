@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='amodevices',
-    version='0.1.38',
+    version='0.1.39',
     author='Lothar Maisenbacher',
     author_email='lothar.maisenbacher@berkeley.edu',
     description='Drivers for AMO (atomic, molecular, and optical physics) laboratory devices.',
@@ -41,6 +41,10 @@ setup(
         'amodevices.ophir_ea1',
         'amodevices.leybold_magdrive',
     ],
+    package_data={
+        'amodevices.lioptec_liopstar': ['*.xml'],
+        'amodevices.srs_sim922': ['dt600.txt'],
+    },
     install_requires=[
         'numpy',
         'pyvisa',
