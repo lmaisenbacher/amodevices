@@ -23,10 +23,16 @@ class FakeResource:
         self.idn = idn
         self.timeout = None
         self.closed = False
+        # What reached the instrument, in order
+        self.calls = []
 
     def query(self, command):
         assert command == '*IDN?'
+        self.calls.append(command)
         return self.idn + '\n'
+
+    def clear(self):
+        self.calls.append('clear')
 
     def write(self, command):
         pass
@@ -166,3 +172,56 @@ def test_a_usb_error_becomes_a_device_error(fake_visa):
     assert not dev.device_connected
     with pytest.raises(DeviceError, match='USB error'):
         dev.visa_write('INIT')
+
+
+def test_without_clear_at_connect_nothing_is_cleared(fake_visa, monkeypatch):
+    cleared = []
+    monkeypatch.setattr(dev_generic.usbtmc, 'usbtmc_clear',
+                        lambda address: cleared.append(address))
+    dev = _device('USB0::0x1AB1::0x0960::DSA8A1234::INSTR', VISABackend='@py')
+    dev.init_visa()
+    assert cleared == [] and dev.visa_resource.calls == ['*IDN?']
+
+
+def test_a_usb_instrument_through_pyvisa_py_gets_a_usbtmc_clear_first(
+        fake_visa, monkeypatch, caplog):
+    # pyvisa-py sends no USB device clear: the USBTMC clear goes through
+    # libusb before the connection opens, never through the resource
+    order = []
+    monkeypatch.setattr(dev_generic.usbtmc, 'usbtmc_clear',
+                        lambda address: order.append(('usbtmc', address)) or 0.002)
+    opened = FakeResourceManager.open_resource
+
+    def open_resource(self, address):
+        order.append(('open', address))
+        return opened(self, address)
+    monkeypatch.setattr(FakeResourceManager, 'open_resource', open_resource)
+    address = 'USB0::0x1AB1::0x0960::DSA8A1234::INSTR'
+    dev = _device(address, VISABackend='@py', ClearAtConnect=True)
+    with caplog.at_level('INFO'):
+        dev.init_visa()
+    assert order == [('usbtmc', address), ('open', address)]
+    assert dev.visa_resource.calls == ['*IDN?']
+    assert 'USBTMC device clear at connect (2 ms)' in caplog.text
+    assert dev.device_connected
+
+
+def test_other_resources_get_the_visa_clear_before_the_first_query(fake_visa):
+    for address, backend in (('USB0::0x1AB1::0x0960::DSA8A1234::INSTR', None),
+                             ('TCPIP0::192.168.50.22::inst0::INSTR', '@py')):
+        dev = _device(address, VISABackend=backend, ClearAtConnect=True)
+        dev.init_visa()
+        assert dev.visa_resource.calls == ['clear', '*IDN?']
+
+
+def test_a_failed_clear_is_logged_and_the_connection_proceeds(
+        fake_visa, monkeypatch, caplog):
+    def fails(address):
+        raise DeviceError('USBTMC clear: no USB device')
+    monkeypatch.setattr(dev_generic.usbtmc, 'usbtmc_clear', fails)
+    dev = _device('USB0::0x1AB1::0x0960::DSA8A1234::INSTR', VISABackend='@py',
+                  ClearAtConnect=True)
+    with caplog.at_level('WARNING'):
+        dev.init_visa()
+    assert 'no device clear at connect' in caplog.text
+    assert dev.device_connected

@@ -52,8 +52,19 @@ class ThorlabsPM100(dev_generic.Device):
             self._idn = self.outer_instance.visa_query('SYSTem:SENSor:IDN?')
             # The PM101 quotes the string fields ('"S121C","230919232",...'),
             # the PM100D does not; strip quotes and padding from every field
+            fields = [field.strip().strip('"') for field in self._idn.split(',')]
+            if len(fields) != 6:
+                # E.g. the 4 fields of the meter's own *IDN? reply: a reply
+                # left queued by a process that ended mid-query was read
+                # first, and the replies come one behind their queries
+                # (the device dict's 'ClearAtConnect' discards it)
+                raise DeviceError(
+                    f'{self.outer_instance.device["Device"]}: sensor'
+                    f' identification \'{self._idn.strip()}\' has'
+                    f' {len(fields)} fields, not 6: a reply out of step with'
+                    ' its query?')
             self._name, self._sn, self._cal_msg, _type, _subtype, _flags = (
-                field.strip().strip('"') for field in self._idn.split(','))
+                fields)
             self._type = int(_type)
             self._subtype = int(_subtype)
             self._flags = int(_flags)

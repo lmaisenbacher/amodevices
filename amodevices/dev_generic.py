@@ -15,6 +15,7 @@ import re
 import serial
 import threading
 
+from . import usbtmc
 from .dev_exceptions import DeviceError
 
 # Thread lock to avoid writing/reading of serial ports from different threads
@@ -123,6 +124,30 @@ class Device:
         if n_write_bytes != len(query):
             raise DeviceError(f'{self.device["Device"]}: Query failed')
 
+    def _usbtmc_clear(self):
+        """`init_visa`'s USBTMC clear through libusb, before the connection
+        opens; a failure is logged, not raised."""
+        try:
+            seconds = usbtmc.usbtmc_clear(self.device['Address'])
+        except Exception as e:
+            logger.warning('Device \'%s\': no device clear at connect: %s',
+                           self.device['Device'], e)
+            return
+        logger.info('Device \'%s\': USBTMC device clear at connect (%.0f ms)',
+                    self.device['Device'], 1e3*seconds)
+
+    def _visa_clear(self):
+        """`init_visa`'s VISA device clear right after the connection
+        opens; a failure is logged, not raised."""
+        try:
+            self.visa_resource.clear()
+        except Exception as e:
+            logger.warning('Device \'%s\': no device clear at connect: %s',
+                           self.device['Device'], e)
+            return
+        logger.info('Device \'%s\': VISA device clear at connect',
+                    self.device['Device'])
+
     def visa_address_is_lan(self) -> bool:
         """Whether the configured VISA address names a LAN resource
         ('TCPIP...::INSTR' or '...::SOCKET'), which `init_visa` opens
@@ -144,6 +169,16 @@ class Device:
         `libusb-package`); the instrument must then be bound to a generic
         USB driver (WinUSB on Windows) rather than to a VISA vendor's
         driver, which libusb cannot open.
+
+        The device dict's optional 'ClearAtConnect' (default False) sends a
+        device clear before the first query: a reply that a process ending
+        mid-query left in the instrument's output queue would otherwise be
+        read as the answer to it, and every later reply would come one
+        behind. For a USB instrument through pyvisa-py, which does not send
+        a USB device clear itself, it is a USBTMC clear through libusb
+        before the connection opens (`usbtmc.usbtmc_clear`); otherwise the
+        VISA library's clear right after it opens. Best effort: a failed
+        clear is logged and the connection proceeds.
         """
         # Release any previously opened resource first, so repeated
         # calls (reconnection attempts) do not leak sessions
@@ -186,8 +221,16 @@ class Device:
                 +' VISA library. Trying to open connection directly and read'
                 +' instrument IDN...',
                 self.device['Address'])
+        clear = bool(self.device.get('ClearAtConnect', False))
+        clear_usbtmc = (clear and backend == '@py'
+                        and usbtmc.usb_address_ids(self.device['Address'])
+                        is not None)
+        if clear_usbtmc:
+            self._usbtmc_clear()
         try:
             self.visa_resource = visa_rm.open_resource(self.device['Address'])
+            if clear and not clear_usbtmc:
+                self._visa_clear()
             visa_rcvd_idn = self.visa_resource.query('*IDN?').rstrip()
         except Exception as e:
             if self.visa_resource is not None:
