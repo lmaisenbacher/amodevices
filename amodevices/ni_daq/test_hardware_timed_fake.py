@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Tests for the NIDAQ driver's hardware-timed AO mode against a fake
-`nidaqmx.Task`: the outputs read back at connect, a generation's
-bookkeeping (write layout, retiming only on a change, the reached
-sample on a restart or a refusal), and that the default on-demand mode
-is untouched. No hardware; run with pytest from the amodevices root or
-`uv run --project <unitrap-pydase-apps> pytest amodevices/ni_daq`.
+"""Tests for the NIDAQ driver against a fake `nidaqmx.Task`: the
+hardware-timed AO mode (the outputs read back at connect, a
+generation's bookkeeping: write layout, retiming only on a change, the
+reached sample on a restart or a refusal), the default on-demand mode,
+and reconnecting in both (a closed DAQmx task refuses every later call
+with -200088, and so does the fake). No hardware; run with pytest from
+the amodevices root.
 """
 
 import types
@@ -17,9 +18,13 @@ from amodevices.dev_exceptions import DeviceError
 
 class FakeTask:
     """The slice of `nidaqmx.Task` the driver touches. `generated` is
-    the sample count the fake card has reached; the test sets it."""
+    the sample count the fake card has reached; the test sets it. Like
+    DAQmx, a closed task refuses every call with -200088; a channel in
+    `refused_channels` is refused when added; `refuse_stop` makes
+    `stop` fail."""
 
     instances = []
+    refused_channels = set()
 
     def __init__(self):
         self.ai = []
@@ -33,8 +38,14 @@ class FakeTask:
         self.closed = False
         self.readback = {}          # internal AO readback per channel name
         self.refuse_start = False
+        self.refuse_stop = False
         self.control_calls = []     # TaskMode values passed to control()
         FakeTask.instances.append(self)
+
+    def _check(self):
+        if self.closed:
+            raise ni_daq.DaqError(
+                'Task specified is invalid or does not exist.', -200088)
 
     def __enter__(self):
         return self
@@ -43,9 +54,13 @@ class FakeTask:
         self.close()
 
     def _add_ai(self, physical_channel, name_to_assign_to_channel=None, **kw):
+        self._check()
+        if physical_channel in FakeTask.refused_channels:
+            raise ni_daq.DaqError('Device identifier is invalid.', -200220)
         self.ai.append(physical_channel)
 
     def _add_ao(self, physical_channel, name_to_assign_to_channel=None, **kw):
+        self._check()
         self.ao.append(physical_channel)
 
     def _cfg(self, rate, sample_mode, samps_per_chan):
@@ -55,20 +70,26 @@ class FakeTask:
         self.control_calls.append(mode)
 
     def read(self, number_of_samples_per_channel=None):
+        self._check()
         values = [self.readback.get(c, 0.) for c in self.ai]
         return values[0] if len(values) == 1 else values
 
     def write(self, data, auto_start=True):
+        self._check()
         self.written.append(data)
         self.auto_start = auto_start
 
     def start(self):
+        self._check()
         if self.refuse_start:
             raise ni_daq.DaqError('refused', 0)
         self.running = True
         self.out_stream.total_samp_per_chan_generated = 0
 
     def stop(self):
+        self._check()
+        if self.refuse_stop:
+            raise ni_daq.DaqError('refused', 0)
         self.running = False
 
     def is_task_done(self):
@@ -85,11 +106,21 @@ CONFIG = {'AOTiming': 'hardware',
           'AIChannels': {'x_err': {'ChannelName': 'Dev1/ai0'}}}
 
 
-@pytest.fixture
-def dev(monkeypatch):
+@pytest.fixture(autouse=True)
+def fake_tasks(monkeypatch):
     FakeTask.instances.clear()
+    FakeTask.refused_channels = set()
     monkeypatch.setattr(ni_daq.nidaqmx, 'Task', FakeTask)
+
+
+@pytest.fixture
+def dev():
     return ni_daq.NIDAQ(CONFIG)
+
+
+@pytest.fixture
+def on_demand():
+    return ni_daq.NIDAQ({k: v for k, v in CONFIG.items() if k != 'AOTiming'})
 
 
 def test_outputs_are_read_back_at_connect(dev, monkeypatch):
@@ -174,12 +205,14 @@ def test_set_voltage_in_hardware_mode_is_a_step(dev):
     assert dev.ao_task.written[-1] == [[0.3, 0.3], [0.4, 0.4]]
 
 
-def test_on_demand_mode_is_unchanged(monkeypatch):
-    FakeTask.instances.clear()
-    monkeypatch.setattr(ni_daq.nidaqmx, 'Task', FakeTask)
-    dev = ni_daq.NIDAQ({k: v for k, v in CONFIG.items() if k != 'AOTiming'})
-    assert dev.ao_timing == 'on-demand' and set(dev.ao_tasks) == {'x', 'y'}
+def test_on_demand_mode_is_unchanged(on_demand):
+    dev = on_demand
+    assert dev.ao_timing == 'on-demand' and dev.ao_tasks == {}
+    assert FakeTask.instances == []            # no DAQmx call before connect
+    with pytest.raises(DeviceError):
+        dev.set_voltage('x', 1.)
     dev.connect()
+    assert set(dev.ao_tasks) == {'x', 'y'}
     assert dev.ao_task is None
     assert all(t.running for t in dev.ao_tasks.values())
     dev.set_voltage('x', 1.5)
@@ -189,3 +222,79 @@ def test_on_demand_mode_is_unchanged(monkeypatch):
     # The on-demand tasks are never committed or retimed (the piezo server's mode)
     assert all(t.control_calls == [] and t.timing.calls == []
                for t in dev.ao_tasks.values())
+
+
+def test_close_then_connect_builds_new_tasks(on_demand):
+    # The piezo server's "Reset connection": close() and connect() on the
+    # same driver. Reusing the closed tasks failed with -200088 and left
+    # the server without tasks until it was restarted
+    dev = on_demand
+    dev.connect()
+    old_ao, old_ai = dict(dev.ao_tasks), dev.ai_task
+    dev.close()
+    assert dev.ao_tasks == {} and dev.ai_task is None and not dev.initialized
+    assert all(t.closed for t in old_ao.values()) and old_ai.closed
+    dev.connect()
+    assert dev.initialized
+    assert all(t is not old_ao[a] and t.running and not t.closed
+               for a, t in dev.ao_tasks.items())
+    assert dev.ai_task is not old_ai and dev.ai_task.running
+    dev.set_voltage('y', 2.5)
+    assert dev.ao_tasks['y'].written == [2.5]
+    assert dev.read_all_ai_voltages() == {'x_err': 0.}
+
+
+def test_hardware_mode_reconnects(dev):
+    dev.connect()
+    old = dev.ao_task
+    dev.close()
+    dev.connect()
+    assert dev.ao_task is not old and old.closed and not dev.ao_task.closed
+    assert dev.ao_task.ao == ['Dev1/ao0', 'Dev1/ao1']
+    dev.set_voltage('x', 0.5)
+    assert dev.ao_task.written[-1] == [[0.5, 0.5], [0., 0.]]
+
+
+def test_connect_while_connected_releases_the_old_tasks(on_demand):
+    dev = on_demand
+    dev.connect()
+    old = [*dev.ao_tasks.values(), dev.ai_task]
+    dev.connect()
+    assert all(t.closed for t in old)
+    assert all(not t.closed for t in [*dev.ao_tasks.values(), dev.ai_task])
+
+
+def test_failed_connect_releases_every_task(on_demand):
+    dev = on_demand
+    FakeTask.refused_channels = {'Dev1/ai0'}
+    with pytest.raises(ni_daq.DaqError):
+        dev.connect()
+    assert len(FakeTask.instances) == 3                  # x, y and the AI task
+    assert all(t.closed for t in FakeTask.instances)
+    assert dev.ao_tasks == {} and dev.ai_task is None and not dev.initialized
+    with pytest.raises(DeviceError, match='AI task not initialized'):
+        dev.read_all_ai_voltages()
+    FakeTask.refused_channels = set()
+    dev.connect()                                        # the next one starts clean
+    assert dev.initialized and dev.read_all_ai_voltages() == {'x_err': 0.}
+
+
+def test_close_releases_every_task_when_one_fails(on_demand):
+    dev = on_demand
+    dev.connect()
+    tasks = [*dev.ao_tasks.values(), dev.ai_task]
+    tasks[0].refuse_stop = True
+    with pytest.raises(ni_daq.DaqError):
+        dev.close()
+    assert all(t.closed for t in tasks)
+    assert dev.ao_tasks == {} and dev.ai_task is None and not dev.initialized
+    dev.connect()
+    assert dev.initialized
+
+
+def test_write_to_a_closed_task_is_a_device_error(on_demand):
+    dev = on_demand
+    dev.connect()
+    dev.ao_tasks['x'].closed = True                      # cleared under the driver
+    with pytest.raises(DeviceError, match='does not exist'):
+        dev.set_voltage('x', 1.)

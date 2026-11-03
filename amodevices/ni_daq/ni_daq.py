@@ -74,11 +74,11 @@ class NIDAQ(dev_generic.Device):
             raise DeviceError(
                 f'AOTiming must be \'{AO_TIMING_ON_DEMAND}\' or'
                 f' \'{AO_TIMING_HARDWARE}\', got \'{self.ao_timing}\'')
-        # On-demand mode: one task per axis. Hardware mode: one task over
-        # every axis (`self.ao_task`, built in `connect`), the axes in the
-        # order of the config
-        self.ao_tasks = ({axis: nidaqmx.Task() for axis in self.ao_channels}
-                         if self.ao_timing == AO_TIMING_ON_DEMAND else {})
+        # On-demand mode: one task per axis (`self.ao_tasks`). Hardware
+        # mode: one task over every axis (`self.ao_task`), the axes in the
+        # order of the config. Both are built in `connect`, afresh each
+        # time: a closed DAQmx task cannot be used again
+        self.ao_tasks: dict[str, nidaqmx.Task] = {}
         self.ao_task: nidaqmx.Task | None = None
         self._ao_axis_order: list[str] = list(self.ao_channels)
         # The generation in progress (hardware mode): its samples per axis
@@ -111,45 +111,55 @@ class NIDAQ(dev_generic.Device):
         pay the DAQmx verify/commit/start/stop state-change overhead (~20
         ms per transition on Windows).
 
-        If AI setup fails partway through, the half-built AI task is
-        closed before the exception propagates, leaving the driver in a
-        clean "not initialized" state.
+        Every call builds new tasks, so :meth:`close` followed by
+        :meth:`connect` reconnects; tasks still held from an earlier
+        connect are closed first. If setup fails partway through, every
+        task built so far is closed before the exception propagates,
+        leaving the driver in a clean "not initialized" state with no
+        channel reserved.
         """
-        if self.ao_timing == AO_TIMING_HARDWARE:
-            # The outputs keep their voltages across tasks and processes,
-            # so a move must start from what they carry now, not from
-            # zero: seed the cache from the card's own AO readback
-            # channels (X Series: Dev1/_ao0_vs_aognd) before any
-            # generation. A device without them leaves the cache at None
-            # (a first move then starts from 0 V, with a warning).
-            self._read_ao_outputs()
-            # One task over every axis; timing is configured per
-            # generation (`start_ao_generation`), which also starts it
-            self.ao_task = nidaqmx.Task()
-            for axis, chan in self.ao_channels.items():
-                self.ao_task.ao_channels.add_ao_voltage_chan(
-                    physical_channel=chan['ChannelName'],
-                    name_to_assign_to_channel=axis,
-                    min_val=chan.get('MinVal', -10.),
-                    max_val=chan.get('MaxVal', 10.)
-                )
-        else:
-            # Per-axis AO tasks, explicitly started so that each `.write()`
-            # just updates the DAC without paying verify/commit/start/stop
-            # overhead.
-            for axis, chan in self.ao_channels.items():
-                self.ao_tasks[axis].ao_channels.add_ao_voltage_chan(
-                    physical_channel=chan['ChannelName'],
-                    min_val=chan.get('MinVal', -10.),
-                    max_val=chan.get('MaxVal', 10.)
-                )
-                self.ao_tasks[axis].start()
-        # Build a single AI task with all channels, then explicitly start it
-        # so subsequent `.read()` calls don't pay per-call commit/start/stop
-        # state-change overhead.
-        self.ai_task = nidaqmx.Task()
-        self._ai_axis_order = []
+        if self.ao_tasks or self.ao_task is not None or self.ai_task is not None:
+            try:
+                self.close()
+            except Exception as e:
+                logger.warning('Closing the tasks of an earlier connect: %s', e)
         try:
+            if self.ao_timing == AO_TIMING_HARDWARE:
+                # The outputs keep their voltages across tasks and
+                # processes, so a move must start from what they carry
+                # now, not from zero: seed the cache from the card's own
+                # AO readback channels (X Series: Dev1/_ao0_vs_aognd)
+                # before any generation. A device without them leaves the
+                # cache at None (a first move then starts from 0 V, with
+                # a warning).
+                self._read_ao_outputs()
+                # One task over every axis; timing is configured per
+                # generation (`start_ao_generation`), which also starts it
+                self.ao_task = nidaqmx.Task()
+                for axis, chan in self.ao_channels.items():
+                    self.ao_task.ao_channels.add_ao_voltage_chan(
+                        physical_channel=chan['ChannelName'],
+                        name_to_assign_to_channel=axis,
+                        min_val=chan.get('MinVal', -10.),
+                        max_val=chan.get('MaxVal', 10.)
+                    )
+            else:
+                # Per-axis AO tasks, explicitly started so that each
+                # `.write()` just updates the DAC without paying
+                # verify/commit/start/stop overhead.
+                for axis, chan in self.ao_channels.items():
+                    task = self.ao_tasks[axis] = nidaqmx.Task()
+                    task.ao_channels.add_ao_voltage_chan(
+                        physical_channel=chan['ChannelName'],
+                        min_val=chan.get('MinVal', -10.),
+                        max_val=chan.get('MaxVal', 10.)
+                    )
+                    task.start()
+            # Build a single AI task with all channels, then explicitly
+            # start it so subsequent `.read()` calls don't pay per-call
+            # commit/start/stop state-change overhead.
+            self.ai_task = nidaqmx.Task()
+            self._ai_axis_order = []
             for axis, chan in self.ai_channels.items():
                 self.ai_task.ai_channels.add_ai_voltage_chan(
                     physical_channel=chan['ChannelName'],
@@ -162,10 +172,9 @@ class NIDAQ(dev_generic.Device):
                 self.ai_task.start()
         except Exception:
             try:
-                self.ai_task.close()
-            finally:
-                self.ai_task = None
-                self._ai_axis_order = []
+                self.close()
+            except Exception as e:
+                logger.warning('Closing the tasks of a failed connect: %s', e)
             raise
         self.initialized = True
 
@@ -174,26 +183,38 @@ class NIDAQ(dev_generic.Device):
 
         Must be called on shutdown to free the reserved channels, otherwise
         a subsequent :meth:`connect` (in this or any other process) will
-        fail with ``DAQmxErrorResourceReserved``.
+        fail with ``DAQmxErrorResourceReserved``. Every task is released
+        even when stopping or closing another one fails; the first such
+        error is raised once all are done. The driver is then not
+        initialized, and :meth:`connect` builds new tasks.
         """
-        for task in self.ao_tasks.values():
-            task.stop()
-            task.close()
+        errors = []
+
+        def release(task, stop):
+            for call in ((task.stop, task.close) if stop else (task.close,)):
+                try:
+                    call()
+                except Exception as e:
+                    errors.append(e)
+
+        tasks, self.ao_tasks = list(self.ao_tasks.values()), {}
+        for task in tasks:
+            release(task, stop=True)
         if self.ao_task is not None:
             try:
                 self._settle_generation()
-            finally:
-                self.ao_task.close()
+            except Exception as e:
+                errors.append(e)
+            release(self.ao_task, stop=False)
             self.ao_task = None
             self._ao_timing_configured = None
         if self.ai_task is not None:
-            try:
-                self.ai_task.stop()
-            finally:
-                self.ai_task.close()
+            release(self.ai_task, stop=True)
             self.ai_task = None
             self._ai_axis_order = []
         self.initialized = False
+        if errors:
+            raise errors[0]
 
     def read_all_ai_voltages(self) -> dict[str, float]:
         """Read all configured AI channels in a single DAQmx call.
@@ -252,8 +273,9 @@ class NIDAQ(dev_generic.Device):
         two-sample generation of `voltage` on `axis`, the other axes held
         at their current values: the DAC steps just the same.
 
-        Raises `DeviceError` if `axis` is not a configured AO channel or
-        if the underlying DAQmx write fails.
+        Raises `DeviceError` if `axis` is not a configured AO channel, if
+        the device is not connected, or if the underlying DAQmx write
+        fails.
         """
         if axis not in self.ao_channels:
             raise DeviceError(f'Unknown AO axis: \'{axis}\'')
@@ -264,9 +286,11 @@ class NIDAQ(dev_generic.Device):
             samples[axis] = [voltage, voltage]
             self.start_ao_generation(samples, rate_hz=1000.)
             return
+        if axis not in self.ao_tasks:
+            raise DeviceError('AO task not initialized')
         try:
             self.ao_tasks[axis].write(voltage)
-        except DaqWriteError as e:
+        except DaqError as e:
             # Convention: pass a stringified message into `DeviceError`,
             # chain the original exception via `from` so its traceback
             # survives on `__cause__` for local debugging.
