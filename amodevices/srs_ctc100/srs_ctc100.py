@@ -20,9 +20,13 @@ class SRSCTC100(dev_generic.Device):
     def __init__(self, device, update_callback_func=None):
         """Initialize class for device with settings `device` (dict)."""
         super().__init__(device)
+        # Channel names in the order `getOutput?` lists their values, read
+        # once per connection (`read_outputs`)
+        self._output_names = None
 
     def connect(self):
         """Open serial connection to device."""
+        self._output_names = None
         self.serial_connect()
 
     def close(self):
@@ -35,6 +39,11 @@ class SRSCTC100(dev_generic.Device):
 
     def query(self, command):
         """Query device with command `command` (str) and return response."""
+        # A reply that arrived after an earlier query timed out would
+        # otherwise be read as this query's reply, and every later reply
+        # would belong to the query before it
+        if self.ser is not None:
+            self.ser.reset_input_buffer()
         self.write(command)
         rsp = self.ser.readline()
         try:
@@ -68,3 +77,36 @@ class SRSCTC100(dev_generic.Device):
         """Send custom command `command` (str) and read response."""
         rsp = self.query(f"{command}")
         return float(rsp)
+
+    def read_output_names(self):
+        """Read the names of all channels (list of str), in the order in
+        which `getOutput?` lists their values."""
+        rsp = self.query('getOutputNames?')
+        return [name.strip() for name in rsp.split(',')]
+
+    def read_outputs(self):
+        """
+        Read the latest conversion of every channel with a single
+        `getOutput?` query and return a dict of channel name (str, as the
+        CTC100 reports it) to value (float; NaN for a sensor that is
+        disconnected or out of range).
+
+        The channel names are read once per connection
+        (`getOutputNames?`) and again after a reply whose number of values
+        does not match them.
+        """
+        if self._output_names is None:
+            self._output_names = self.read_output_names()
+        names = self._output_names
+        values = self.query('getOutput?').split(',')
+        if len(values) != len(names):
+            self._output_names = None
+            raise DeviceError(
+                f'{self.device["Device"]}: getOutput? returned {len(values)}'
+                f' values for {len(names)} channels')
+        try:
+            return {name: float(value) for name, value in zip(names, values)}
+        except ValueError:
+            raise DeviceError(
+                f'{self.device["Device"]}: Non-numeric value in getOutput?'
+                f' reply \'{",".join(values)}\'')
