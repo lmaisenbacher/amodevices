@@ -115,5 +115,66 @@ def test_late_reply_discarded_before_a_query():
     assert dev.read_temperature('X233660') == 7.765
 
 
+def test_query_sent_time_recorded(monkeypatch):
+    dev, _ = make_device({'getOutputNames?': NAMES, 'getOutput?': OUTPUT})
+    clock = iter([1_000, 2_000])
+    monkeypatch.setattr('amodevices.srs_ctc100.srs_ctc100.time.time_ns',
+                        lambda: next(clock))
+    dev.read_outputs()
+    # getOutputNames? at 1000 ns, getOutput? at 2000 ns
+    assert dev.query_sent_ns == 2_000
+
+
+def test_figures_read_set_and_verbose_high_reply():
+    dev, fake = make_device({'X233660.Figures?': b'Default\r\n',
+                             'AIO4.Figures?': b'AIO4.Figures = 6\r\n'})
+    assert dev.read_figures('X233660') == 'Default'
+    # Spaces dropped from the name, as the CTC100's own commands allow
+    assert dev.read_figures('AIO 4') == '6'
+    dev.set_figures('X233660', 6)
+    assert fake.sent[-1] == 'X233660.Figures 6'
+
+
+@pytest.mark.parametrize('figures', [7, -1, 'six', 2.5])
+def test_figures_out_of_range_refused(figures):
+    dev, fake = make_device({})
+    with pytest.raises(DeviceError, match='Figures must be'):
+        dev.set_figures('X233660', figures)
+    assert fake.sent == []
+
+
+@pytest.mark.parametrize('reply, period', [(b'100 ms\r\n', 0.1),
+                                           (b'16.7 ms\r\n', 0.0167),
+                                           (b'1 s\r\n', 1.0)])
+def test_ad_period(reply, period):
+    dev, fake = make_device({'"System.Other.A/D rate?"': reply})
+    assert dev.read_ad_period() == pytest.approx(period)
+    assert fake.sent == ['"System.Other.A/D rate?"']
+
+
+@pytest.mark.parametrize('rate, command', [
+    (16.7, '"System.Other.A/D rate" = "16.7 ms"'),
+    (100, '"System.Other.A/D rate" = "100 ms"'),
+    (33.3, '"System.Other.A/D rate" = "33.3 ms"')])
+def test_ad_rate_set_as_text_with_unit(rate, command):
+    dev, fake = make_device({})
+    dev.set_ad_rate(rate)
+    assert fake.sent == [command]
+
+
+@pytest.mark.parametrize('rate', [0, -100, '100 ms', True])
+def test_bad_ad_rate_refused(rate):
+    dev, fake = make_device({})
+    with pytest.raises(DeviceError, match='positive number'):
+        dev.set_ad_rate(rate)
+    assert fake.sent == []
+
+
+def test_ad_period_not_understood_refused():
+    dev, _ = make_device({'"System.Other.A/D rate?"': b'fast\r\n'})
+    with pytest.raises(DeviceError, match='not understood'):
+        dev.read_ad_period()
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
