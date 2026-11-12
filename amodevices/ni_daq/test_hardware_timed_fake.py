@@ -3,9 +3,10 @@
 hardware-timed AO mode (the outputs read back at connect, a
 generation's bookkeeping: write layout, retiming only on a change, the
 reached sample on a restart or a refusal), the default on-demand mode,
-and reconnecting in both (a closed DAQmx task refuses every later call
-with -200088, and so does the fake). No hardware; run with pytest from
-the amodevices root.
+reconnecting in both (a closed DAQmx task refuses every later call
+with -200088, and so does the fake), and the AI channels' terminal
+configuration ('TerminalConfig'). No hardware; run with pytest from the
+amodevices root.
 """
 
 import types
@@ -28,6 +29,7 @@ class FakeTask:
 
     def __init__(self):
         self.ai = []
+        self.ai_kwargs = []         # keyword arguments of each AI channel
         self.ao = []
         self.timing = types.SimpleNamespace(calls=[], cfg_samp_clk_timing=self._cfg)
         self.ai_channels = types.SimpleNamespace(add_ai_voltage_chan=self._add_ai)
@@ -58,6 +60,7 @@ class FakeTask:
         if physical_channel in FakeTask.refused_channels:
             raise ni_daq.DaqError('Device identifier is invalid.', -200220)
         self.ai.append(physical_channel)
+        self.ai_kwargs.append(kw)
 
     def _add_ao(self, physical_channel, name_to_assign_to_channel=None, **kw):
         self._check()
@@ -298,3 +301,51 @@ def test_write_to_a_closed_task_is_a_device_error(on_demand):
     dev.ao_tasks['x'].closed = True                      # cleared under the driver
     with pytest.raises(DeviceError, match='does not exist'):
         dev.set_voltage('x', 1.)
+
+
+def test_terminal_config_reaches_each_ai_channel():
+    # Case-insensitive names; the default's value for every channel
+    # without its own
+    config = {**CONFIG,
+              'AIChannelDefault': {'TerminalConfig': 'RSE'},
+              'AIChannels': {
+                  'x_err': {'ChannelName': 'Dev1/ai0', 'TerminalConfig': 'diff'},
+                  'y_err': {'ChannelName': 'Dev1/ai1'},
+                  'z_err': {'ChannelName': 'Dev1/ai2',
+                            'TerminalConfig': 'Pseudo_Diff'}}}
+    dev = ni_daq.NIDAQ(config)
+    dev.connect()
+    tc = ni_daq.TerminalConfiguration
+    assert dev.ai_task.ai == ['Dev1/ai0', 'Dev1/ai1', 'Dev1/ai2']
+    assert [kw['terminal_config'] for kw in dev.ai_task.ai_kwargs] == [
+        tc.DIFF, tc.RSE, tc.PSEUDO_DIFF]
+    # The AO readback at connect (hardware mode) keeps DAQmx's default
+    readback = FakeTask.instances[0]
+    assert readback.ai == ['Dev1/_ao0_vs_aognd', 'Dev1/_ao1_vs_aognd']
+    assert all('terminal_config' not in kw for kw in readback.ai_kwargs)
+
+
+def test_without_terminal_config_daqmx_default_applies(on_demand):
+    on_demand.connect()
+    assert on_demand.ai_task.ai == ['Dev1/ai0']
+    assert 'terminal_config' not in on_demand.ai_task.ai_kwargs[0]
+    # None (a YAML null) is the same as no key
+    dev = ni_daq.NIDAQ({'AIChannels': {
+        'x_err': {'ChannelName': 'Dev1/ai0', 'TerminalConfig': None}}})
+    dev.connect()
+    assert 'terminal_config' not in dev.ai_task.ai_kwargs[0]
+
+
+@pytest.mark.parametrize('value', ['differential ', 'single-ended', '', 10106])
+def test_unknown_terminal_config_is_refused_at_configuration(value):
+    config = {'AIChannels': {
+        'x_err': {'ChannelName': 'Dev1/ai0'},
+        'y_err': {'ChannelName': 'Dev1/ai1', 'TerminalConfig': value}}}
+    with pytest.raises(DeviceError) as refusal:
+        ni_daq.NIDAQ(config)
+    message = str(refusal.value)
+    assert '\'y_err\'' in message and '\'x_err\'' not in message
+    assert all(f'\'{name}\'' in message
+               for name in ('default', 'diff', 'nrse', 'pseudo_diff', 'rse'))
+    assert repr(value) in message
+    assert FakeTask.instances == []          # refused before any DAQmx call

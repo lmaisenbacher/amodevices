@@ -28,7 +28,7 @@ import time
 import warnings
 
 import nidaqmx
-from nidaqmx.constants import AcquisitionType, TaskMode
+from nidaqmx.constants import AcquisitionType, TaskMode, TerminalConfiguration
 from nidaqmx.errors import DaqError, DaqWarning, DaqWriteError
 
 from .. import dev_generic
@@ -41,6 +41,25 @@ AO_TIMING_ON_DEMAND = 'on-demand'
 AO_TIMING_HARDWARE = 'hardware'
 #: A hardware-timed finite generation needs at least this many samples
 AO_GENERATION_MIN_SAMPLES = 2
+#: The terminal configurations an AI channel's ``TerminalConfig`` can
+#: name: the members of `TerminalConfiguration`, by lower-case name
+AI_TERMINAL_CONFIGS = {
+    name.lower(): member
+    for name, member in TerminalConfiguration.__members__.items()}
+
+
+def ai_terminal_config(axis, value):
+    """The `TerminalConfiguration` member that `value` names
+    (case-insensitive) for the AI channel `axis`. Raises `DeviceError`,
+    naming the channel and the valid names, for any other value."""
+    member = (AI_TERMINAL_CONFIGS.get(value.lower())
+              if isinstance(value, str) else None)
+    if member is None:
+        valid = ', '.join(f'\'{name}\'' for name in sorted(AI_TERMINAL_CONFIGS))
+        raise DeviceError(
+            f'AI channel \'{axis}\': \'TerminalConfig\' must be one of'
+            f' {valid}, got {value!r}')
+    return member
 
 
 class NIDAQ(dev_generic.Device):
@@ -61,9 +80,19 @@ class NIDAQ(dev_generic.Device):
         - ``AOTiming``: ``'on-demand'`` (default) or ``'hardware'``, see
           the module docstring.
         - ``AIChannelDefault``, ``AIChannels``: analogous for analog inputs.
+          An AI channel may also set ``TerminalConfig``, its terminal
+          configuration: the name of a
+          `nidaqmx.constants.TerminalConfiguration` member,
+          case-insensitive (``'diff'``, ``'rse'``, ``'nrse'``,
+          ``'pseudo_diff'``, ``'default'``). Without it DAQmx's default
+          for the channel applies, which depends on the device. Like the
+          other keys it can go into ``AIChannelDefault``.
 
         No hardware I/O is performed here — call :meth:`connect` to
-        actually reserve the channels and start the tasks.
+        actually reserve the channels and start the tasks. Raises
+        `DeviceError` for an unknown ``AOTiming`` or ``TerminalConfig``;
+        a terminal configuration the device does not support is refused
+        by DAQmx in :meth:`connect`.
         """
         self.ao_channel_default = config.get('AOChannelDefault', {})
         self.ao_channels = {
@@ -92,6 +121,13 @@ class NIDAQ(dev_generic.Device):
         self.ai_channels = {
             axis: {**self.ai_channel_default, **chan}
             for axis, chan in config.get('AIChannels', {}).items()}
+        # Each AI channel's terminal configuration, checked here so a
+        # wrong name fails before any channel is reserved; None where the
+        # config names none (DAQmx's default for the channel)
+        self._ai_terminal_configs = {
+            axis: (None if chan.get('TerminalConfig') is None
+                   else ai_terminal_config(axis, chan['TerminalConfig']))
+            for axis, chan in self.ai_channels.items()}
         # All AI channels share a single long-lived `nidaqmx.Task`, so one
         # `.read()` returns values for every configured channel at once.
         self.ai_task: nidaqmx.Task | None = None
@@ -161,11 +197,17 @@ class NIDAQ(dev_generic.Device):
             self.ai_task = nidaqmx.Task()
             self._ai_axis_order = []
             for axis, chan in self.ai_channels.items():
+                # A channel without 'TerminalConfig' leaves the argument
+                # out, so DAQmx's default for the channel applies
+                terminal_config = self._ai_terminal_configs[axis]
+                extra = ({} if terminal_config is None
+                         else {'terminal_config': terminal_config})
                 self.ai_task.ai_channels.add_ai_voltage_chan(
                     physical_channel=chan['ChannelName'],
                     name_to_assign_to_channel=axis,
                     min_val=chan.get('MinVal', -10.),
-                    max_val=chan.get('MaxVal', 10.)
+                    max_val=chan.get('MaxVal', 10.),
+                    **extra
                 )
                 self._ai_axis_order.append(axis)
             if self._ai_axis_order:
@@ -304,7 +346,9 @@ class NIDAQ(dev_generic.Device):
     def _read_ao_outputs(self):
         """Seed ``ao_voltages`` from the card's internal AO readback
         channels, one short on-demand read; a device without them (or a
-        refused read) logs a warning and leaves the cache as it is."""
+        refused read) logs a warning and leaves the cache as it is. The
+        internal channels keep DAQmx's default terminal configuration:
+        ``TerminalConfig`` belongs to the configured AI channels only."""
         try:
             with nidaqmx.Task() as task:
                 for axis, chan in self.ao_channels.items():
